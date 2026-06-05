@@ -23,8 +23,10 @@ import Document from "@tiptap/extension-document";
 import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
 import { FILLER_WORDS, WordNode } from "./WordNode";
+import { PauseNode } from "./PauseNode";
 import { useProjectStore, useTemporalProjectStore } from "@/stores/projectStore";
 import { usePlayerStore } from "@/stores/playerStore";
+import { useUIStore } from "@/stores/uiStore";
 import { computeTimeline, wordIdToOutputTime, type Word } from "@/lib/edl";
 import { formatTimecode } from "@/lib/timecode";
 import { Button } from "@/components/ui/button";
@@ -121,10 +123,14 @@ export function TranscriptEditor({
 }: TranscriptEditorProps) {
   const project = useProjectStore((s) => s.project);
   const deleteWordsByText = useProjectStore((s) => s.deleteWordsByText);
+  const deletePauseById = useProjectStore((s) => s.deletePauseById);
   const setSelectedWordIds = usePlayerStore((s) => s.setSelectedWordIds);
+  // Pause tokens now live in projectStore so they survive undo/redo of EDL edits.
+  const pauseTokens = useProjectStore((s) => s.pauseTokens);
   const selectedWordIds = usePlayerStore((s) => s.selectedWordIds);
   const undo = useTemporalProjectStore((t) => t.undo);
   const pastStates = useTemporalProjectStore((t) => t.pastStates);
+  const withProcessingEdit = useUIStore((s) => s.withProcessingEdit);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
 
@@ -151,11 +157,13 @@ export function TranscriptEditor({
   }, [words]);
 
   const handleRemoveAllFillers = useCallback(() => {
-    deleteWordsByText(FILLER_WORDS);
-  }, [deleteWordsByText]);
+    void withProcessingEdit("Removing fillers…", () => {
+      deleteWordsByText(FILLER_WORDS);
+    });
+  }, [deleteWordsByText, withProcessingEdit]);
 
   const editor = useEditor({
-    extensions: [Document, Paragraph, Text, WordNode],
+    extensions: [Document, Paragraph, Text, WordNode, PauseNode],
     editable: false,
     content: { type: "doc", content: [] },
     editorProps: {
@@ -169,6 +177,15 @@ export function TranscriptEditor({
     (event: React.MouseEvent<HTMLDivElement>) => {
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed) return;
+
+      // Pause badge click: remove that pause by its stable id.
+      const pauseEl = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-pause]");
+      if (pauseEl && containerRef.current?.contains(pauseEl)) {
+        const pauseId = pauseEl.dataset.pauseId;
+        if (pauseId) void withProcessingEdit("Updating timeline…", () => deletePauseById(pauseId));
+        return;
+      }
+
       const wordEl = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-word-id]");
       if (!wordEl || !containerRef.current?.contains(wordEl)) return;
       const wordId = wordEl.dataset.wordId;
@@ -179,39 +196,102 @@ export function TranscriptEditor({
         new CustomEvent("yusafcut:seek-output", { detail: { time: mapped.outputTime, play: true } }),
       );
     },
-    [project],
+    [project, deletePauseById, withProcessingEdit],
   );
 
-  // Re-render the TipTap document whenever the EDL changes.
+  // Wire up keyboard deletion for selected pause nodes (fired by PauseNode's
+  // addKeyboardShortcuts).  The custom event carries the stable pauseId.
+  useEffect(() => {
+    function onDeletePause(e: Event) {
+      const pauseId = (e as CustomEvent<{ pauseId: string }>).detail.pauseId;
+      if (pauseId) void withProcessingEdit("Updating timeline…", () => deletePauseById(pauseId));
+    }
+    window.addEventListener("yusafcut:delete-pause", onDeletePause);
+    return () => window.removeEventListener("yusafcut:delete-pause", onDeletePause);
+  }, [deletePauseById, withProcessingEdit]);
+
+  // Re-render the TipTap document whenever the EDL or pause tokens change.
+  // Pauses marked as `deleted` are omitted from the rebuild so they disappear
+  // immediately — no duplicate badge problem since setPauseTokens always replaces.
+  //
+  // Pauses are placed by MERGING words and pauses into one time-sorted stream and
+  // anchoring each pause after the last word whose *start* precedes the pause's
+  // start. We deliberately compare against word START times, never word END
+  // times: Whisper (especially large-v3 without DTW) stretches a word's `end` to
+  // abut the next word, absorbing the silence into the preceding word — so the
+  // inter-word "gap" is near-zero and any end/gap-based match silently drops the
+  // badge. Start-anchoring always finds exactly one home for every pause.
   useEffect(() => {
     if (!editor) return;
+
+    // Build a time-sorted token stream. On a start-time tie, the word sorts
+    // before the pause so the badge renders after the word it follows.
+    type Tok =
+      | { kind: "word"; start: number; order: 0; w: Word }
+      | { kind: "pause"; start: number; order: 1; p: (typeof pauseTokens)[number] };
+    const toks: Tok[] = [];
+    for (const w of words) toks.push({ kind: "word", start: w.start, order: 0, w });
+    for (const p of pauseTokens) {
+      if (!p.deleted) toks.push({ kind: "pause", start: p.start, order: 1, p });
+    }
+    toks.sort((a, b) => a.start - b.start || a.order - b.order);
+
+    // Walk the stream, grouping words into paragraphs using the SAME rule as
+    // paragraphize() (gap ≥ 750 ms between consecutive words, or sentence end) so
+    // the rendered <p> count stays in lockstep with the floating timestamp column.
+    // Pause badges attach to whichever paragraph is current when reached.
+    const paraContents: object[][] = [[]];
+    let lastWord: Word | null = null;
+    const seenPauseIds = new Set<string>();
+
+    for (const tok of toks) {
+      if (tok.kind === "word") {
+        const w = tok.w;
+        if (lastWord) {
+          const gapMs = (w.start - lastWord.end) * 1000;
+          const endsSentence = /[.?!]$/.test(lastWord.text.trim());
+          if (gapMs >= PARAGRAPH_PAUSE_MS || endsSentence) {
+            paraContents.push([]); // start a new paragraph
+          } else {
+            // Space between two words within the same paragraph.
+            paraContents[paraContents.length - 1]!.push({ type: "text", text: " " });
+          }
+        }
+        paraContents[paraContents.length - 1]!.push({
+          type: "word",
+          attrs: { wordId: w.id, start: w.start, end: w.end, confidence: w.confidence },
+          content: [{ type: "text", text: w.text }],
+        });
+        lastWord = w;
+      } else {
+        const p = tok.p;
+        if (seenPauseIds.has(p.id)) continue; // never duplicate a badge
+        seenPauseIds.add(p.id);
+        // If the pause has been visually shortened, show the shorter duration.
+        const displayDuration = p.shortenedTo ?? p.duration;
+        // The badge carries its own horizontal margin (.pause-marker), so no
+        // surrounding text spaces are needed.
+        paraContents[paraContents.length - 1]!.push({
+          type: "pause",
+          attrs: {
+            pauseId: p.id,
+            srcStart: p.start,
+            srcEnd: p.end,
+            duration: displayDuration,
+          },
+        });
+      }
+    }
+
     const cleanDoc = {
       type: "doc",
-      content: paragraphs.map((para) => ({
-        type: "paragraph",
-        content: para.words.flatMap((w, i) => {
-          const nodes: object[] = [
-            {
-              type: "word",
-              attrs: {
-                wordId: w.id,
-                start: w.start,
-                end: w.end,
-                confidence: w.confidence,
-              },
-              content: [{ type: "text", text: w.text }],
-            },
-          ];
-          if (i < para.words.length - 1) {
-            nodes.push({ type: "text", text: " " });
-          }
-          return nodes;
-        }),
-      })),
+      content: paraContents
+        .filter((c) => c.length > 0)
+        .map((content) => ({ type: "paragraph", content })),
     };
 
     editor.commands.setContent(cleanDoc as never, false);
-  }, [editor, paragraphs]);
+  }, [editor, pauseTokens, words]);
 
   // Measure paragraph positions so the floating timestamp column lines up.
   // Re-measures on layout changes (resize, content change).

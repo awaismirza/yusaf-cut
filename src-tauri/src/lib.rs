@@ -42,6 +42,7 @@ pub fn run() {
             commands::transcribe::transcribe,
             commands::transcribe::list_models,
             commands::transcribe::download_model,
+            commands::transcribe::delete_model,
             commands::project::save_project,
             commands::project::load_project,
             commands::project::relink_media,
@@ -55,6 +56,7 @@ pub fn run() {
             commands::snapshots::delete_snapshot,
             commands::misc::app_data_dir,
             commands::misc::reveal_in_finder,
+            commands::pauses::detect_pauses,
         ])
         .setup(|app| {
             // Best-effort persistence of the jobs queue across restarts.

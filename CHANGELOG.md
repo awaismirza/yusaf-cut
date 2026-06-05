@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-06-05
+
+### Added
+- **Automatic pause detection after transcription** — after a successful Whisper transcription, the app automatically runs pause detection and displays inline pause badges such as `[0.6s]` and `[2.1s]` in the transcript without user action.
+- **Toolbox Edit menu pause actions** — new dropdown items: "Show pauses", "Remove all pauses", "Remove pauses > 0.5s", "Remove pauses > 1.0s", "Shorten pauses > 1.0s to 0.3s".
+- **Global processing overlay** — heavy transcript/EDL edits (Remove fillers, Trim silences, Detect pauses, Remove pauses, etc.) now show a full-screen "Updating timeline…" overlay with a spinner to indicate in-progress work and lock playback until completion.
+- **Pause deletion from transcript** — click any inline pause badge `[0.6s]` to remove that silence from the edit; use ⌘Z to restore. Keyboard Delete also removes a selected pause badge.
+- **New `projectStore` actions**: `setPauseTokens`, `removePauseToken`, `markPauseDeleted`, `deletePauseById`, `deletePausesLongerThan`, `shortenPausesLongerThan`.
+- Five new Rust pause-parsing unit tests: typical output, no silence, malformed lines, orphaned `silence_end`, invalid range.
+
+### Changed
+- **Pause tokens hardened (Phase 1)** — `PauseSegment` now carries a stable UUID `id`, pre-computed `duration`, and optional `deleted`/`shortenedTo` fields. The Rust parser rejects invalid ranges (`end ≤ start`) and orphaned `silence_end` lines without a matching `silence_start`.
+- **Pause state moved to `projectStore`** — `pauseTokens` is now stored in `projectStore` (not `uiStore`) so it persists across undo/redo of EDL edits and is co-located with the project. `uiStore.detectedPauses` has been removed.
+- **Safer silence deletion** — new `deleteSilenceRange` store action only removes words whose full source span falls within the silence boundary (±30 ms tolerance), preventing accidental deletion of words that merely abut the silence.
+- **Pause badge identified by UUID** — `PauseNode` now carries a `pauseId` attr; click and keyboard Delete both use the id to target the correct pause, replacing the fragile float-equality lookup.
+- **No duplicate badges** — calling "Show pauses" again replaces the entire list via `setPauseTokens`, never appends.
+- **Playback locked during heavy edits** — when a heavy transcript operation (Remove fillers, Trim silences, Detect pauses, etc.) is in progress, the Play button is disabled and Space/J/K/L transport shortcuts are swallowed. If playback is already running, it automatically pauses when a heavy edit starts.
+
+### Fixed
+- **Large-v3 transcription failure** — removed unsupported DTW preset (`--dtw large-v3`) that caused transcription to fail with status 1 for the full `large-v3` model.
+- **Pause detection sidecar binding** — verified pause detection uses the bundled ffmpeg sidecar in packaged builds (not system ffmpeg), ensuring the feature works in the released app with no external dependencies.
+- **File/Edit dropdown menu transparency** — made dropdown menus opaque to improve readability and prevent flickering when the video preview is scrolling behind them.
+
+### Known Limitations (TODO Phase 2)
+- `shortenPausesLongerThan` updates the badge display only — actual EDL segment trimming (removing silence from the export timeline) requires splitting segments and is not yet implemented.
+- `pauseTokens` are not serialized into the `.scribe` project bundle; they are lost on reload.
+
+## [4.2.0] - 2026-06-05
+
+### Added
+- **Delete downloaded model** — installed Whisper models now show a "Remove" button in the model settings dialog. Clicking it prompts for confirmation and deletes the GGML `.bin` file and associated Core ML encoder directory from disk, freeing up space. The Remove button is disabled while a transcription or download is in progress.
+- **`large-v3` model entry in settings UI** — the full large-v3 model (3.1 GB) is now visible in the model list so it can be downloaded and deleted from the same dialog.
+
+### Fixed
+- `list_models` now includes the `large-v3` variant that was added to the enum in v4.1.0 but omitted from the list response.
+
+## [4.1.0] - 2026-06-05
+
+### Added
+- **`large-v3` Whisper model** — the full (non-turbo) large-v3 model (~3.1 GB) is now available in the model-download UI. It receives DTW word-timestamp refinement for maximum per-word accuracy on difficult audio. Use it when `large-v3-turbo` isn't accurate enough.
+- **Pause detection command (`detect_pauses`)** — new Rust command that runs `ffmpeg silencedetect` on the source media and returns a list of silent ranges as `PauseSegment { start, end }` entries.
+- **Inline pause-duration badges** — after running "Show pauses" in the Edit menu, silent gaps appear inline in the transcript as `[0.6s]`, `[2s]`, etc. Click any badge to cut that range from the EDL; use ⌘Z to restore.
+- **"Show pauses" and "Remove all pauses" actions** in the Toolbox Edit dropdown. "Show pauses" runs detection and renders the badges. "Remove all pauses" cuts every detected silent range from the EDL in one operation.
+
 ## [3.7.1] - 2026-05-24
 
 ### Changed
