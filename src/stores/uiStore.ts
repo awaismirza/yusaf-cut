@@ -1,6 +1,7 @@
 /** Lightweight UI store: toasts, modal state, model-download progress overlay. */
 
 import { create } from "zustand";
+import type { PauseSegment } from "@/lib/ipc";
 
 export type Toast = {
   id: string;
@@ -24,6 +25,12 @@ interface UIState {
    */
   editOperationLabel: string | null;
   activeTool: EditorTool;
+  /**
+   * Pause segments detected by the last `detect_pauses` run. Empty means
+   * detection hasn't been run yet (or the user cleared the markers).
+   * TranscriptEditor reads this to render inline `[0.6s]` badges.
+   */
+  detectedPauses: PauseSegment[];
 
   pushToast: (t: Omit<Toast, "id">) => void;
   dismissToast: (id: string) => void;
@@ -34,6 +41,7 @@ interface UIState {
   setMediaLoading: (loading: boolean) => void;
   setEditOperationLabel: (label: string | null) => void;
   setActiveTool: (tool: EditorTool) => void;
+  setDetectedPauses: (pauses: PauseSegment[]) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -44,6 +52,7 @@ export const useUIStore = create<UIState>((set) => ({
   mediaLoading: false,
   editOperationLabel: null,
   activeTool: "select",
+  detectedPauses: [],
 
   pushToast: (t) =>
     set((s) => ({
@@ -60,4 +69,5 @@ export const useUIStore = create<UIState>((set) => ({
   setMediaLoading: (loading) => set({ mediaLoading: loading }),
   setEditOperationLabel: (label) => set({ editOperationLabel: label }),
   setActiveTool: (tool) => set({ activeTool: tool }),
+  setDetectedPauses: (pauses) => set({ detectedPauses: pauses }),
 }));

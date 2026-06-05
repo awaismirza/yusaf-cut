@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-06-05
+
+### Added
+- **`large-v3` Whisper model** — the full (non-turbo) large-v3 model (~3.1 GB) is now available in the model-download UI. It receives DTW word-timestamp refinement for maximum per-word accuracy on difficult audio. Use it when `large-v3-turbo` isn't accurate enough.
+- **Pause detection command (`detect_pauses`)** — new Rust command that runs `ffmpeg silencedetect` on the source media and returns a list of silent ranges as `PauseSegment { start, end }` entries.
+- **Inline pause-duration badges** — after running "Show pauses" in the Edit menu, silent gaps appear inline in the transcript as `[0.6s]`, `[2s]`, etc. Click any badge to cut that range from the EDL; use ⌘Z to restore.
+- **"Show pauses" and "Remove all pauses" actions** in the Toolbox Edit dropdown. "Show pauses" runs detection and renders the badges. "Remove all pauses" cuts every detected silent range from the EDL in one operation.
+
 ## [3.7.1] - 2026-05-24
 
 ### Changed

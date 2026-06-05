@@ -23,8 +23,10 @@ import Document from "@tiptap/extension-document";
 import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
 import { FILLER_WORDS, WordNode } from "./WordNode";
+import { PauseNode } from "./PauseNode";
 import { useProjectStore, useTemporalProjectStore } from "@/stores/projectStore";
 import { usePlayerStore } from "@/stores/playerStore";
+import { useUIStore } from "@/stores/uiStore";
 import { computeTimeline, wordIdToOutputTime, type Word } from "@/lib/edl";
 import { formatTimecode } from "@/lib/timecode";
 import { Button } from "@/components/ui/button";
@@ -121,7 +123,10 @@ export function TranscriptEditor({
 }: TranscriptEditorProps) {
   const project = useProjectStore((s) => s.project);
   const deleteWordsByText = useProjectStore((s) => s.deleteWordsByText);
+  const deleteBySourceRange = useProjectStore((s) => s.deleteBySourceRange);
   const setSelectedWordIds = usePlayerStore((s) => s.setSelectedWordIds);
+  const detectedPauses = useUIStore((s) => s.detectedPauses);
+  const setDetectedPauses = useUIStore((s) => s.setDetectedPauses);
   const selectedWordIds = usePlayerStore((s) => s.selectedWordIds);
   const undo = useTemporalProjectStore((t) => t.undo);
   const pastStates = useTemporalProjectStore((t) => t.pastStates);
@@ -155,7 +160,7 @@ export function TranscriptEditor({
   }, [deleteWordsByText]);
 
   const editor = useEditor({
-    extensions: [Document, Paragraph, Text, WordNode],
+    extensions: [Document, Paragraph, Text, WordNode, PauseNode],
     editable: false,
     content: { type: "doc", content: [] },
     editorProps: {
@@ -169,6 +174,21 @@ export function TranscriptEditor({
     (event: React.MouseEvent<HTMLDivElement>) => {
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed) return;
+
+      // Pause badge click: remove that pause from the EDL + from detected list.
+      const pauseEl = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-pause]");
+      if (pauseEl && containerRef.current?.contains(pauseEl)) {
+        const srcStart = Number(pauseEl.dataset.srcStart);
+        const srcEnd = Number(pauseEl.dataset.srcEnd);
+        if (!Number.isNaN(srcStart) && !Number.isNaN(srcEnd)) {
+          deleteBySourceRange(srcStart, srcEnd);
+          setDetectedPauses(
+            detectedPauses.filter((p) => !(p.start === srcStart && p.end === srcEnd)),
+          );
+        }
+        return;
+      }
+
       const wordEl = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-word-id]");
       if (!wordEl || !containerRef.current?.contains(wordEl)) return;
       const wordId = wordEl.dataset.wordId;
@@ -179,10 +199,10 @@ export function TranscriptEditor({
         new CustomEvent("yusafcut:seek-output", { detail: { time: mapped.outputTime, play: true } }),
       );
     },
-    [project],
+    [project, detectedPauses, deleteBySourceRange, setDetectedPauses],
   );
 
-  // Re-render the TipTap document whenever the EDL changes.
+  // Re-render the TipTap document whenever the EDL or detected pauses change.
   useEffect(() => {
     if (!editor) return;
     const cleanDoc = {
@@ -202,16 +222,33 @@ export function TranscriptEditor({
               content: [{ type: "text", text: w.text }],
             },
           ];
-          if (i < para.words.length - 1) {
+
+          const nextWord = para.words[i + 1];
+          if (nextWord) {
+            // Inject a pause badge if a detected pause falls entirely in this gap.
+            const pause = detectedPauses.find(
+              (p) => p.start >= w.end && p.end <= nextWord.start,
+            );
+            if (pause) {
+              nodes.push({
+                type: "pause",
+                attrs: {
+                  srcStart: pause.start,
+                  srcEnd: pause.end,
+                  duration: pause.end - pause.start,
+                },
+              });
+            }
             nodes.push({ type: "text", text: " " });
           }
+
           return nodes;
         }),
       })),
     };
 
     editor.commands.setContent(cleanDoc as never, false);
-  }, [editor, paragraphs]);
+  }, [editor, paragraphs, detectedPauses]);
 
   // Measure paragraph positions so the floating timestamp column lines up.
   // Re-measures on layout changes (resize, content change).

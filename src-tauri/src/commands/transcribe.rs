@@ -50,6 +50,9 @@ pub enum WhisperModel {
     Medium,
     #[serde(rename = "large-v3-turbo")]
     LargeV3Turbo,
+    /// Full large-v3 (non-turbo). Highest accuracy, ~3.1 GB. Receives DTW refinement.
+    #[serde(rename = "large-v3")]
+    LargeV3,
 }
 
 impl WhisperModel {
@@ -60,6 +63,7 @@ impl WhisperModel {
             WhisperModel::Small => "ggml-small.bin",
             WhisperModel::Medium => "ggml-medium.bin",
             WhisperModel::LargeV3Turbo => "ggml-large-v3-turbo.bin",
+            WhisperModel::LargeV3 => "ggml-large-v3.bin",
         }
     }
 
@@ -71,6 +75,7 @@ impl WhisperModel {
             WhisperModel::Small => "small",
             WhisperModel::Medium => "medium",
             WhisperModel::LargeV3Turbo => "large-v3-turbo",
+            WhisperModel::LargeV3 => "large-v3",
         }
     }
 
@@ -92,6 +97,7 @@ impl WhisperModel {
             WhisperModel::Small => 466,
             WhisperModel::Medium => 1500,
             WhisperModel::LargeV3Turbo => 1600,
+            WhisperModel::LargeV3 => 3100,
         }
     }
 }

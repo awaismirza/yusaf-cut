@@ -11,6 +11,7 @@ import { usePlayerStore } from "@/stores/playerStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUIStore } from "@/stores/uiStore";
 import {
+  AudioLines,
   Bookmark,
   ChevronDown,
   Flag,
@@ -23,6 +24,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import { detectPauses } from "@/lib/ipc";
 
 /** Common English filler words to remove in one click. */
 const FILLER_TOKENS = new Set([
@@ -40,6 +42,9 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
   const project = useProjectStore((s) => s.project);
   const removeSilences = useProjectStore((s) => s.removeSilences);
   const deleteWordsByText = useProjectStore((s) => s.deleteWordsByText);
+  const deleteBySourceRange = useProjectStore((s) => s.deleteBySourceRange);
+  const detectedPauses = useUIStore((s) => s.detectedPauses);
+  const setDetectedPauses = useUIStore((s) => s.setDetectedPauses);
   const addChapter = useProjectStore((s) => s.addChapter);
   const pushToast = useUIStore((s) => s.pushToast);
   const setEditOperationLabel = useUIStore((s) => s.setEditOperationLabel);
@@ -117,6 +122,61 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
               description: "Matching audio ranges are cut from the timeline. Use ⌘Z to restore.",
             });
           }
+        } finally {
+          setEditOperationLabel(null);
+        }
+      });
+    });
+  }
+
+  async function handleShowPauses() {
+    const mediaPath = Object.values(project.media)[0]?.path;
+    if (!mediaPath) {
+      pushToast({ title: "No media loaded", description: "Import a video file first." });
+      return;
+    }
+    setEditOperationLabel("Detecting pauses…");
+    try {
+      const pauses = await detectPauses({ mediaPath, noiseThreshold: -35, minDuration: 0.5 });
+      setDetectedPauses(pauses);
+      if (pauses.length === 0) {
+        pushToast({
+          title: "No pauses found",
+          description: "No silences longer than 0.5 s detected at –35 dB.",
+        });
+      } else {
+        pushToast({
+          title: `Found ${pauses.length} pause${pauses.length === 1 ? "" : "s"}`,
+          description: "Badges shown inline — click one to remove it, or use 'Remove all pauses'.",
+        });
+      }
+    } catch (e) {
+      pushToast({ title: "Pause detection failed", description: String(e), variant: "destructive" });
+    } finally {
+      setEditOperationLabel(null);
+    }
+  }
+
+  function handleRemoveAllPauses() {
+    if (detectedPauses.length === 0) {
+      pushToast({ title: "No pauses to remove", description: "Run 'Show pauses' first." });
+      return;
+    }
+    setEditOperationLabel("Removing pauses…");
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          let removed = 0;
+          for (const p of detectedPauses) {
+            removed += deleteBySourceRange(p.start, p.end);
+          }
+          setDetectedPauses([]);
+          pushToast({
+            title: `Removed ${detectedPauses.length} pause${detectedPauses.length === 1 ? "" : "s"}`,
+            description: removed > 0
+              ? `${removed} word${removed === 1 ? "" : "s"} cut. Use ⌘Z to restore.`
+              : "Pauses cleared from transcript.",
+          });
         } finally {
           setEditOperationLabel(null);
         }
@@ -208,6 +268,17 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
           <DropdownMenuItem onClick={handleRemoveFillers} disabled={!hasWords}>
             <MessageSquareOff className="h-4 w-4 mr-2" />
             Remove fillers
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void handleShowPauses()} disabled={!hasWords}>
+            <AudioLines className="h-4 w-4 mr-2" />
+            Show pauses
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={handleRemoveAllPauses}
+            disabled={detectedPauses.length === 0}
+          >
+            <AudioLines className="h-4 w-4 mr-2" />
+            Remove all pauses{detectedPauses.length > 0 ? ` (${detectedPauses.length})` : ""}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
