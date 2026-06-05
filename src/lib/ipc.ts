@@ -320,5 +320,8 @@ export function detectPauses(opts: DetectPausesOpts): Promise<PauseSegment[]> {
   const args: Record<string, unknown> = { mediaPath: opts.mediaPath };
   if (opts.noiseThreshold !== undefined) args.noiseThreshold = opts.noiseThreshold;
   if (opts.minDuration !== undefined) args.minDuration = opts.minDuration;
-  return invoke<PauseSegment[]>("detect_pauses", args);
+  // The Rust command takes a single `opts: DetectPausesOpts` parameter, so the
+  // payload must be wrapped under an `opts` key — otherwise Tauri rejects the
+  // call with "missing required key opts".
+  return invoke<PauseSegment[]>("detect_pauses", { opts: args });
 }

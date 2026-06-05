@@ -20,6 +20,7 @@ import { useUIStore } from "@/stores/uiStore";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteModel,
+  detectPauses,
   downloadModel,
   exportVideo,
   importMedia,
@@ -375,6 +376,11 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
         { dirty: true, filePath: null },
       );
       pushToast({ title: "Recording transcribed", description: `${result.words.length} words` });
+
+      // Auto-surface pauses for the recording too (best-effort, non-blocking).
+      if (result.words.length > 0) {
+        await autoDetectPauses(media.path);
+      }
     } catch (err) {
       pushToast({
         title: "Recording import/transcription failed",
@@ -543,6 +549,30 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
     }
   }, [modelDialogOpen]);
 
+  /**
+   * Best-effort pause detection for a freshly-transcribed clip. Stores the
+   * result in projectStore.pauseTokens (which always REPLACES, so re-running
+   * never duplicates badges) and surfaces a non-blocking toast. Failures here
+   * never fail transcription — they are reported but swallowed.
+   */
+  const autoDetectPauses = useCallback(
+    async (mediaPath: string) => {
+      try {
+        const pauses = await detectPauses({ mediaPath, noiseThreshold: -35, minDuration: 0.5 });
+        useProjectStore.getState().setPauseTokens(pauses);
+        pushToast(
+          pauses.length > 0
+            ? { title: `Detected ${pauses.length} pause${pauses.length === 1 ? "" : "s"}` }
+            : { title: "No pauses found" },
+        );
+      } catch (err) {
+        // Non-fatal: transcription already succeeded.
+        pushToast({ title: "Pause detection failed", description: String(err) });
+      }
+    },
+    [pushToast],
+  );
+
   async function startTranscribe() {
     setModelDialogOpen(false);
     const force = forceRetranscribeRef.current;
@@ -623,6 +653,13 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
             ? `${totalWords} words across ${mediaIds.length} clip${mediaIds.length === 1 ? "" : "s"}`
             : "All clips already had transcript text",
       });
+
+      // Automatically surface pauses so the user sees inline [0.6s] badges
+      // without having to open Edit → Show pauses. Best-effort, non-blocking.
+      const primaryPath = Object.values(nextProject.media)[0]?.path;
+      if (primaryPath && totalWords > 0) {
+        await autoDetectPauses(primaryPath);
+      }
     } catch (err) {
       pushToast({
         title: force ? "Re-transcription failed" : "Transcription failed",
