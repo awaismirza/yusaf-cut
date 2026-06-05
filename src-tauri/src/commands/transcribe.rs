@@ -207,6 +207,11 @@ pub async fn list_models(app: AppHandle) -> Result<Vec<ModelInfo>, String> {
 
 /// Download a single file from HuggingFace whisper.cpp repo, emitting progress
 /// events with the given `progress_name` key.
+///
+/// `phase` / `label` are forwarded verbatim in the event so the frontend can
+/// display a human-readable status (e.g. "Downloading model file" vs
+/// "Downloading Core ML encoder").  `progress_scale` and `progress_offset`
+/// map the raw 0–1 file progress into the caller's combined progress range.
 async fn download_hf_file(
     app: &AppHandle,
     url: &str,
@@ -214,11 +219,17 @@ async fn download_hf_file(
     progress_name: impl Serialize,
     progress_scale: f64,
     progress_offset: f64,
+    phase: &str,
+    label: &str,
 ) -> Result<(), String> {
     let tmp = dest.with_extension(format!(
         "{}.partial",
         dest.extension().unwrap_or_default().to_string_lossy()
     ));
+    // Remove any stale partial left by a previously interrupted download.
+    if tmp.exists() {
+        let _ = fs::remove_file(&tmp).await;
+    }
 
     let resp = reqwest::get(url).await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
@@ -247,6 +258,8 @@ async fn download_hf_file(
             "model:download:progress",
             serde_json::json!({
                 "name": progress_name,
+                "phase": phase,
+                "label": label,
                 "progress": progress,
                 "bytesDownloaded": downloaded,
                 "bytesTotal": total,
@@ -255,6 +268,8 @@ async fn download_hf_file(
         .ok();
     }
 
+    file.flush().await.map_err(|e| e.to_string())?;
+    drop(file);
     fs::rename(&tmp, dest).await.map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -278,6 +293,12 @@ async fn unzip_coreml_encoder(zip_path: &PathBuf, parent_dir: &PathBuf) -> Resul
 }
 
 /// Download a whisper.cpp GGML model (bin + optional Core ML encoder).
+///
+/// Combined progress weighting across the full operation:
+///   0 %  → 75 %  — GGML .bin download          (phase: "model")
+///  75 %  → 95 %  — Core ML encoder download     (phase: "coreml")
+///  95 %  → 100 % — unzip / preparation          (phase: "unzip")
+///        100 %   — complete                     (phase: "complete")
 async fn download_whisper_cpp_model(
     app: &AppHandle,
     name: WhisperModel,
@@ -290,8 +311,24 @@ async fn download_whisper_cpp_model(
         name.filename()
     );
     let bin_dest = dir.join(name.filename());
-    download_hf_file(app, &bin_url, &bin_dest, name, 0.85, 0.0).await?;
-    ensure_coreml_encoder(app, &dir, name).await;
+    // .bin: combined 0 % → 75 %
+    download_hf_file(app, &bin_url, &bin_dest, name, 0.75, 0.0, "model", "Downloading model file").await?;
+    // Core ML encoder: combined 75 % → 95 % (download) + 95 % → 100 % (unzip)
+    ensure_coreml_encoder(app, &dir, name, 0.75, 0.20).await;
+
+    app.emit(
+        "model:download:progress",
+        serde_json::json!({
+            "name": name,
+            "phase": "complete",
+            "label": "Model ready",
+            "progress": 1.0,
+            "bytesDownloaded": 0u64,
+            "bytesTotal": 0u64,
+        }),
+    )
+    .ok();
+
     Ok(())
 }
 
@@ -368,10 +405,21 @@ pub async fn delete_model(
 // ensure_coreml_encoder — whisper.cpp Core ML companion (unchanged)
 // ---------------------------------------------------------------------------
 
+/// Ensure the Core ML encoder directory exists for `name`, downloading and
+/// unzipping it if necessary.
+///
+/// `progress_offset` and `progress_scale` place this step inside the caller's
+/// combined progress range.  The download occupies the first 90 % of
+/// `progress_scale`; the unzip step occupies the remaining 10 %.
+///
+/// Returns `true` if the encoder is available (was already present or was
+/// successfully installed), `false` on failure (CPU fallback will be used).
 async fn ensure_coreml_encoder(
     app: &AppHandle,
     models: &PathBuf,
     name: WhisperModel,
+    progress_offset: f64,
+    progress_scale: f64,
 ) -> bool {
     let encoder_dir = models.join(name.coreml_encoder_dir());
     if encoder_dir.exists() {
@@ -383,17 +431,6 @@ async fn ensure_coreml_encoder(
         name.filename()
     );
 
-    app.emit(
-        "model:download:progress",
-        serde_json::json!({
-            "name": name,
-            "progress": 0.0,
-            "bytesDownloaded": 0u64,
-            "bytesTotal": 0u64,
-        }),
-    )
-    .ok();
-
     let zip_name = name.coreml_encoder_zip();
     let zip_dest = models.join(&zip_name);
     let zip_url = format!(
@@ -401,34 +438,67 @@ async fn ensure_coreml_encoder(
         zip_name
     );
 
-    let ok = match download_hf_file(app, &zip_url, &zip_dest, name, 1.0, 0.0).await {
+    // Reserve the last 10 % of the allocated range for the unzip step.
+    let dl_scale = progress_scale * 0.9;
+    let unzip_progress = (progress_offset + dl_scale).clamp(0.0, 1.0);
+
+    let ok = match download_hf_file(
+        app,
+        &zip_url,
+        &zip_dest,
+        name,
+        dl_scale,
+        progress_offset,
+        "coreml",
+        "Downloading Core ML encoder",
+    )
+    .await
+    {
         Err(e) => {
             log::warn!("Core ML encoder download failed: {e}");
+            // Emit a skipped event so the UI knows this phase ended and won't appear stuck.
+            app.emit(
+                "model:download:progress",
+                serde_json::json!({
+                    "name": name,
+                    "phase": "coreml-skipped",
+                    "label": "Core ML encoder unavailable — CPU fallback",
+                    "progress": (progress_offset + progress_scale).clamp(0.0, 1.0),
+                    "bytesDownloaded": 0u64,
+                    "bytesTotal": 0u64,
+                }),
+            )
+            .ok();
             false
         }
-        Ok(()) => match unzip_coreml_encoder(&zip_dest, models).await {
-            Err(e) => {
-                log::warn!("Core ML encoder unzip failed: {e}");
-                let _ = fs::remove_file(&zip_dest).await;
-                false
-            }
-            Ok(()) => {
-                log::info!("Core ML encoder installed for {}", name.filename());
-                true
-            }
-        },
-    };
+        Ok(()) => {
+            // Unzip phase: notify the user so the UI doesn't freeze during extraction.
+            app.emit(
+                "model:download:progress",
+                serde_json::json!({
+                    "name": name,
+                    "phase": "unzip",
+                    "label": "Preparing Core ML encoder…",
+                    "progress": unzip_progress,
+                    "bytesDownloaded": 0u64,
+                    "bytesTotal": 0u64,
+                }),
+            )
+            .ok();
 
-    app.emit(
-        "model:download:progress",
-        serde_json::json!({
-            "name": name,
-            "progress": 1.0,
-            "bytesDownloaded": 0u64,
-            "bytesTotal": 0u64,
-        }),
-    )
-    .ok();
+            match unzip_coreml_encoder(&zip_dest, models).await {
+                Err(e) => {
+                    log::warn!("Core ML encoder unzip failed: {e}");
+                    let _ = fs::remove_file(&zip_dest).await;
+                    false
+                }
+                Ok(()) => {
+                    log::info!("Core ML encoder installed for {}", name.filename());
+                    true
+                }
+            }
+        }
+    };
 
     ok
 }
@@ -553,7 +623,7 @@ async fn transcribe_whisper_cpp(
         ));
     }
 
-    let use_coreml = ensure_coreml_encoder(app, &models, model_enum).await;
+    let use_coreml = ensure_coreml_encoder(app, &models, model_enum, 0.0, 1.0).await;
     if !use_coreml {
         log::warn!(
             "Core ML encoder unavailable for {} — falling back to CPU (--no-gpu)",

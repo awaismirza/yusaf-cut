@@ -165,6 +165,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   const transcribeProgress = useUIStore((s) => s.transcribeProgress);
   const exportingProgress = useUIStore((s) => s.exportingProgress);
   const modelDownloadProgress = useUIStore((s) => s.modelDownloadProgress);
+  const modelDownloadLabel = useUIStore((s) => s.modelDownloadLabel);
   const mediaLoading = useUIStore((s) => s.mediaLoading);
   const editOperationLabel = useUIStore((s) => s.editOperationLabel);
   const pushToast = useUIStore((s) => s.pushToast);
@@ -194,6 +195,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   // Which model is currently being downloaded inside the dialog, and its progress.
   const [downloadingModel, setDownloadingModel] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadLabel, setDownloadLabel] = useState("Downloading…");
   const [deletingModel, setDeletingModel] = useState<string | null>(null);
   const [recordDialogOpen, setRecordDialogOpen] = useState(false);
   const [musicDialogOpen, setMusicDialogOpen] = useState(false);
@@ -461,7 +463,10 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
 
     // Subscribe to download progress events so the inline bar updates live.
     const unlisten = await onModelDownloadProgress((p) => {
-      if (p.name === name) setDownloadProgress(p.progress);
+      if (p.name === name) {
+        setDownloadProgress(p.progress);
+        if (p.label) setDownloadLabel(p.label);
+      }
     });
     unlistenDownloadRef.current = unlisten;
 
@@ -484,6 +489,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       unlistenDownloadRef.current = null;
       setDownloadingModel(null);
       setDownloadProgress(0);
+      setDownloadLabel("Downloading…");
     }
   }
 
@@ -1042,7 +1048,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
                     <div className="mt-2">
                       <Progress value={downloadProgress * 100} className="h-1.5" />
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Downloading… {Math.round(downloadProgress * 100)}% — do not close
+                        {downloadLabel} — {Math.round(downloadProgress * 100)}% — do not close
                       </p>
                     </div>
                   )}
@@ -1395,7 +1401,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
           <div className="space-y-3">
             <Progress value={(modelDownloadProgress ?? 0) * 100} />
             <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Model download</span>
+              <span>{modelDownloadLabel ?? "Downloading…"}</span>
               <span>{Math.round((modelDownloadProgress ?? 0) * 100)}%</span>
             </div>
           </div>
