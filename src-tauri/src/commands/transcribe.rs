@@ -697,35 +697,80 @@ async fn transcribe_whisper_cpp(
     let mut stderr = String::new();
     let total_duration = opts.media_duration.max(1.0);
 
-    while let Some(ev) = rx.recv().await {
-        match ev {
-            CommandEvent::Stderr(line) => {
-                let line = String::from_utf8_lossy(&line).to_string();
-                stderr.push_str(&line);
-                stderr.push('\n');
-                if let Some(current_time) = parse_progress_line(&line) {
-                    let progress = (current_time / total_duration).clamp(0.02, 0.99);
+    // Progress is driven by two sources, reconciled so it only ever moves
+    // forward (`last_progress` is monotonic):
+    //   1. Real progress parsed from whisper-cli stderr timestamp lines.
+    //   2. A 1-second synthetic heartbeat, used whenever real progress lags or
+    //      never arrives (some whisper-cli builds buffer those lines until the
+    //      very end, which previously froze the overlay at 1%).
+    let started_at = std::time::Instant::now();
+    let mut last_progress: f64 = 0.01;
+    let mut ticker = tokio::time::interval(std::time::Duration::from_secs(1));
+    // Drop the immediate first tick so the heartbeat starts ~1 s in.
+    ticker.tick().await;
+
+    let exit_ok = loop {
+        tokio::select! {
+            maybe_ev = rx.recv() => {
+                match maybe_ev {
+                    Some(CommandEvent::Stderr(line)) => {
+                        let line = String::from_utf8_lossy(&line).to_string();
+                        stderr.push_str(&line);
+                        stderr.push('\n');
+                        if let Some(current_time) = parse_progress_line(&line) {
+                            let real = (current_time / total_duration).clamp(0.02, 0.99);
+                            // Never move backwards: only adopt real progress if it
+                            // exceeds whatever synthetic progress already reported.
+                            if real > last_progress {
+                                last_progress = real;
+                                app.emit(
+                                    "transcribe:progress",
+                                    TranscribeProgress {
+                                        media_id: opts.media_id.clone(),
+                                        progress: last_progress,
+                                        current_time,
+                                    },
+                                )
+                                .ok();
+                                let eta = ((total_duration - current_time).max(0.0)) as i64;
+                                job.set_progress(last_progress, Some(eta)).await;
+                            }
+                        }
+                    }
+                    Some(CommandEvent::Terminated(t)) => {
+                        break t.code == Some(0);
+                    }
+                    Some(_) => {}
+                    // Channel closed without an explicit Terminated event —
+                    // treat as a clean finish and let JSON parsing be the judge.
+                    None => break true,
+                }
+            }
+            _ = ticker.tick() => {
+                // Heartbeat: advance synthetic progress while Whisper is busy so
+                // the overlay never looks frozen. Capped at 95% by the helper.
+                let elapsed = started_at.elapsed().as_secs_f64();
+                let synthetic = synthetic_transcribe_progress(elapsed, total_duration);
+                if synthetic > last_progress {
+                    last_progress = synthetic;
+                    let current_time = (last_progress * total_duration).min(total_duration);
                     app.emit(
                         "transcribe:progress",
                         TranscribeProgress {
                             media_id: opts.media_id.clone(),
-                            progress,
+                            progress: last_progress,
                             current_time,
                         },
                     )
                     .ok();
-                    let eta = ((total_duration - current_time).max(0.0)) as i64;
-                    job.set_progress(progress, Some(eta)).await;
+                    job.set_progress(last_progress, None).await;
                 }
             }
-            CommandEvent::Terminated(t) => {
-                if t.code != Some(0) {
-                    return Err(format!("whisper-cli failed: {}", stderr.trim()));
-                }
-                break;
-            }
-            _ => {}
         }
+    };
+
+    if !exit_ok {
+        return Err(format!("whisper-cli failed: {}", stderr.trim()));
     }
 
     let json_path = wav.with_extension("wav.json");
@@ -743,6 +788,33 @@ async fn transcribe_whisper_cpp(
 // ---------------------------------------------------------------------------
 // Progress line parsers
 // ---------------------------------------------------------------------------
+
+/// Synthetic transcription progress as a function of elapsed wall-clock time.
+///
+/// Used as a heartbeat when whisper-cli does not emit (or buffers) its stderr
+/// timestamp lines, so the UI never appears frozen. The curve is monotonic,
+/// starts at ~1 %, and is hard-capped at 95 % — real parsed progress (or the
+/// final 100 % on completion) always takes over when available.
+///
+/// `media_duration` lightly scales the ramp so short clips reach high progress
+/// sooner, but the knees are clamped to sane wall-clock bounds either way.
+fn synthetic_transcribe_progress(elapsed_sec: f64, media_duration: f64) -> f64 {
+    // Time to reach ~50 % and ~85 % respectively, bounded so neither tiny nor
+    // huge media produces a degenerate curve.
+    let knee1 = (media_duration * 0.5).clamp(20.0, 60.0);
+    let knee2 = (media_duration * 1.5).clamp(knee1 + 30.0, 180.0);
+
+    let p = if elapsed_sec <= knee1 {
+        0.01 + (elapsed_sec / knee1) * (0.50 - 0.01)
+    } else if elapsed_sec <= knee2 {
+        0.50 + ((elapsed_sec - knee1) / (knee2 - knee1)) * (0.85 - 0.50)
+    } else {
+        // Approach 0.95 slowly over the following ~10 minutes.
+        let extra = elapsed_sec - knee2;
+        0.85 + (extra / 600.0) * (0.95 - 0.85)
+    };
+    p.clamp(0.01, 0.95)
+}
 
 /// Parse a whisper.cpp stderr progress line:
 ///   `[00:00:30.000 --> 00:00:32.500]` → 32.5 seconds
@@ -831,6 +903,27 @@ mod tests {
             WhisperModel::Tiny.coreml_encoder_zip(),
             "ggml-tiny-encoder.mlmodelc.zip"
         );
+    }
+
+    #[test]
+    fn synthetic_progress_starts_low_and_is_capped() {
+        // Starts at ~1 % and never exceeds the 95 % cap, even far out.
+        assert!((synthetic_transcribe_progress(0.0, 120.0) - 0.01).abs() < 1e-6);
+        assert!(synthetic_transcribe_progress(0.0, 120.0) >= 0.01);
+        assert!(synthetic_transcribe_progress(100_000.0, 120.0) <= 0.95);
+        assert!(synthetic_transcribe_progress(100_000.0, 5.0) <= 0.95);
+    }
+
+    #[test]
+    fn synthetic_progress_is_monotonic() {
+        // Across a wide range of elapsed times the curve must never decrease.
+        let mut prev = 0.0;
+        for sec in 0..2000 {
+            let p = synthetic_transcribe_progress(sec as f64, 120.0);
+            assert!(p >= prev - 1e-9, "regressed at {sec}s: {p} < {prev}");
+            assert!(p <= 0.95 + 1e-9);
+            prev = p;
+        }
     }
 
     #[test]

@@ -214,6 +214,31 @@ export function TranscriptEditor({
     // Only show active (non-deleted) pauses.
     const activePauses = pauseTokens.filter((p) => !p.deleted);
 
+    // Map each word id → the next word in *global* output order. Matching on the
+    // global successor (rather than the next word *within* a paragraph) is what
+    // makes long pauses visible: paragraphize() breaks paragraphs at gaps
+    // ≥ 750 ms, which is exactly where meaningful pauses land. Using the
+    // per-paragraph successor meant the last word of a paragraph had no
+    // `nextWord`, so its trailing pause badge was never inserted.
+    const globalNext = new Map<string, Word>();
+    for (let i = 0; i < words.length - 1; i++) {
+      globalNext.set(words[i]!.id, words[i + 1]!);
+    }
+
+    // ffmpeg silencedetect timestamps never line up exactly with Whisper word
+    // boundaries, so match on the pause *midpoint* falling inside the inter-word
+    // gap (with a small tolerance) instead of requiring strict containment.
+    // A used-id set guarantees each pause is rendered at most once even if two
+    // gaps could plausibly claim it — no duplicate badges.
+    const TOL = 0.05;
+    const usedPauseIds = new Set<string>();
+    const pauseForGap = (gapStart: number, gapEnd: number) =>
+      activePauses.find((p) => {
+        if (usedPauseIds.has(p.id)) return false;
+        const mid = (p.start + p.end) / 2;
+        return mid >= gapStart - TOL && mid <= gapEnd + TOL;
+      });
+
     const cleanDoc = {
       type: "doc",
       content: paragraphs.map((para) => ({
@@ -232,13 +257,14 @@ export function TranscriptEditor({
             },
           ];
 
-          const nextWord = para.words[i + 1];
-          if (nextWord) {
-            // Inject a pause badge if an active pause falls entirely in this gap.
-            const pause = activePauses.find(
-              (p) => p.start >= w.end && p.end <= nextWord.start,
-            );
+          // Look for a pause in the gap after this word, using the GLOBAL next
+          // word so paragraph-boundary pauses still get a badge (rendered at the
+          // end of the paragraph, just before the break).
+          const nextGlobal = globalNext.get(w.id);
+          if (nextGlobal) {
+            const pause = pauseForGap(w.end, nextGlobal.start);
             if (pause) {
+              usedPauseIds.add(pause.id);
               // If the pause has been visually shortened, show the shorter duration.
               const displayDuration = pause.shortenedTo ?? pause.duration;
               nodes.push({
@@ -251,6 +277,10 @@ export function TranscriptEditor({
                 },
               });
             }
+          }
+
+          // A trailing space belongs only between words inside the same paragraph.
+          if (para.words[i + 1]) {
             nodes.push({ type: "text", text: " " });
           }
 
@@ -260,7 +290,7 @@ export function TranscriptEditor({
     };
 
     editor.commands.setContent(cleanDoc as never, false);
-  }, [editor, paragraphs, pauseTokens]);
+  }, [editor, paragraphs, pauseTokens, words]);
 
   // Measure paragraph positions so the floating timestamp column lines up.
   // Re-measures on layout changes (resize, content change).
