@@ -660,21 +660,14 @@ async fn transcribe_whisper_cpp(
     // Uses Dynamic Time Warping on the mel spectrogram to pin each word's
     // start/end to its actual audio onset — brings timing accuracy from
     // ~100 ms down to ~20 ms, similar to Descript-grade forced alignment.
-    // Only available for the standard model sizes; large-v3-turbo and other
-    // distilled variants are not in the DTW model list so we skip them.
-    let dtw_ident: Option<&str> = match opts.model_name.as_str() {
-        "tiny"   => Some("tiny"),
-        "base"   => Some("base"),
-        "small"  => Some("small"),
-        "medium" => Some("medium"),
-        "large-v1" => Some("large-v1"),
-        "large-v2" => Some("large-v2"),
-        "large-v3" => Some("large-v3"),
-        _ => None,
-    };
-    if let Some(dtw) = dtw_ident {
+    // Only available for the presets the bundled whisper-cli ships aheads for.
+    if let Some(dtw) = dtw_preset_for_model(&opts.model_name) {
         whisper_args.push("--dtw".into());
         whisper_args.push(dtw.into());
+    } else if opts.model_name == "large-v3" {
+        log::info!(
+            "Skipping DTW for large-v3 because bundled whisper-cli does not support that preset"
+        );
     }
 
     if !use_coreml {
@@ -779,6 +772,31 @@ fn tempfile_with_ext(ext: &str) -> PathBuf {
     p
 }
 
+/// Map a model slug to the `--dtw` preset the bundled `whisper-cli` accepts.
+///
+/// DTW (Dynamic Time Warping) refines word timestamps, but the bundled
+/// whisper-cli only ships the alignment heads for a subset of presets. Passing
+/// an unknown preset makes whisper-cli abort with
+/// `error: unknown DTW preset '<name>'` before producing any JSON.
+///
+/// `large-v3` and `large-v3-turbo` are intentionally excluded: the current
+/// binary rejects `--dtw large-v3`, and the turbo/distilled variants are not in
+/// its DTW model list. Both still transcribe fine without DTW.
+fn dtw_preset_for_model(model_name: &str) -> Option<&'static str> {
+    match model_name {
+        "tiny" => Some("tiny"),
+        "base" => Some("base"),
+        "small" => Some("small"),
+        "medium" => Some("medium"),
+        "large-v1" => Some("large-v1"),
+        "large-v2" => Some("large-v2"),
+        // Bundled whisper-cli rejects `--dtw large-v3`; skip rather than fail.
+        "large-v3" => None,
+        "large-v3-turbo" => None,
+        _ => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -813,6 +831,25 @@ mod tests {
             WhisperModel::Tiny.coreml_encoder_zip(),
             "ggml-tiny-encoder.mlmodelc.zip"
         );
+    }
+
+    #[test]
+    fn dtw_preset_supported_models() {
+        assert_eq!(dtw_preset_for_model("tiny"), Some("tiny"));
+        assert_eq!(dtw_preset_for_model("base"), Some("base"));
+        assert_eq!(dtw_preset_for_model("small"), Some("small"));
+        assert_eq!(dtw_preset_for_model("medium"), Some("medium"));
+        assert_eq!(dtw_preset_for_model("large-v1"), Some("large-v1"));
+        assert_eq!(dtw_preset_for_model("large-v2"), Some("large-v2"));
+    }
+
+    #[test]
+    fn dtw_preset_unsupported_models_return_none() {
+        // The bundled whisper-cli rejects `--dtw large-v3`, and turbo/distilled
+        // variants are not in its DTW model list — both must skip DTW.
+        assert_eq!(dtw_preset_for_model("large-v3"), None);
+        assert_eq!(dtw_preset_for_model("large-v3-turbo"), None);
+        assert_eq!(dtw_preset_for_model("unknown-model"), None);
     }
 
     #[test]
