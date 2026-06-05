@@ -49,7 +49,7 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
   const activePauses = pauseTokens.filter((p) => !p.deleted);
   const addChapter = useProjectStore((s) => s.addChapter);
   const pushToast = useUIStore((s) => s.pushToast);
-  const setEditOperationLabel = useUIStore((s) => s.setEditOperationLabel);
+  const withProcessingEdit = useUIStore((s) => s.withProcessingEdit);
   const chapterCount = projectChapters(project).length;
   const currentTime = usePlayerStore((s) => s.currentTime);
   const timelineMarkIn = usePlayerStore((s) => s.timelineMarkIn);
@@ -83,51 +83,37 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
     setSelectedWordIds([]);
   }
 
-  function handleRemoveSilences() {
-    setEditOperationLabel("Trimming silences…");
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        try {
-          const removed = removeSilences();
-          if (removed === 0) {
-            pushToast({
-              title: "Nothing to trim",
-              description: "No silences longer than 600ms found between words.",
-            });
-          } else {
-            pushToast({
-              title: `Trimmed ${removed} silence${removed === 1 ? "" : "s"}`,
-              description: "Use ⌘Z to restore.",
-            });
-          }
-        } finally {
-          setEditOperationLabel(null);
-        }
-      });
+  async function handleRemoveSilences() {
+    await withProcessingEdit("Trimming silences…", () => {
+      const removed = removeSilences();
+      if (removed === 0) {
+        pushToast({
+          title: "Nothing to trim",
+          description: "No silences longer than 600ms found between words.",
+        });
+      } else {
+        pushToast({
+          title: `Trimmed ${removed} silence${removed === 1 ? "" : "s"}`,
+          description: "Use ⌘Z to restore.",
+        });
+      }
     });
   }
 
-  function handleRemoveFillers() {
-    setEditOperationLabel("Removing filler words…");
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        try {
-          const removed = deleteWordsByText(FILLER_TOKENS);
-          if (removed === 0) {
-            pushToast({
-              title: "No filler words found",
-              description: "None of the common filler words (um, uh, like…) appear in the transcript.",
-            });
-          } else {
-            pushToast({
-              title: `Removed ${removed} filler word${removed === 1 ? "" : "s"}`,
-              description: "Matching audio ranges are cut from the timeline. Use ⌘Z to restore.",
-            });
-          }
-        } finally {
-          setEditOperationLabel(null);
-        }
-      });
+  async function handleRemoveFillers() {
+    await withProcessingEdit("Removing fillers…", () => {
+      const removed = deleteWordsByText(FILLER_TOKENS);
+      if (removed === 0) {
+        pushToast({
+          title: "No filler words found",
+          description: "None of the common filler words (um, uh, like…) appear in the transcript.",
+        });
+      } else {
+        pushToast({
+          title: `Removed ${removed} filler word${removed === 1 ? "" : "s"}`,
+          description: "Matching audio ranges are cut from the timeline. Use ⌘Z to restore.",
+        });
+      }
     });
   }
 
@@ -137,106 +123,88 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
       pushToast({ title: "No media loaded", description: "Import a video file first." });
       return;
     }
-    setEditOperationLabel("Detecting pauses…");
-    try {
-      const pauses = await detectPauses({ mediaPath, noiseThreshold: -35, minDuration: 0.5 });
-      // Always replace — prevents duplicate badges on repeated detection.
-      setPauseTokens(pauses);
-      if (pauses.length === 0) {
+    await withProcessingEdit("Detecting pauses…", async () => {
+      try {
+        const pauses = await detectPauses({ mediaPath, noiseThreshold: -35, minDuration: 0.5 });
+        // Always replace — prevents duplicate badges on repeated detection.
+        setPauseTokens(pauses);
+        if (pauses.length === 0) {
+          pushToast({
+            title: "No pauses found",
+            description: "No silences longer than 0.5 s detected at –35 dB.",
+          });
+        } else {
+          pushToast({
+            title: `Detected ${pauses.length} pause${pauses.length === 1 ? "" : "s"}`,
+            description: "Badges shown inline — click to remove, or use the pause sub-menu.",
+          });
+        }
+      } catch (e) {
         pushToast({
-          title: "No pauses found",
-          description: "No silences longer than 0.5 s detected at –35 dB.",
-        });
-      } else {
-        pushToast({
-          title: `Detected ${pauses.length} pause${pauses.length === 1 ? "" : "s"}`,
-          description: "Badges shown inline — click to remove, or use the pause sub-menu.",
+          title: "Pause detection failed",
+          description: String(e),
+          variant: "destructive",
         });
       }
-    } catch (e) {
-      pushToast({ title: "Pause detection failed", description: String(e), variant: "destructive" });
-    } finally {
-      setEditOperationLabel(null);
-    }
+    });
   }
 
-  function handleRemoveAllPauses() {
+  async function handleRemoveAllPauses() {
     if (activePauses.length === 0) {
       pushToast({ title: "No pauses to remove", description: "Run 'Show pauses' first." });
       return;
     }
     const count = activePauses.length;
-    setEditOperationLabel("Removing pauses…");
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        try {
-          // deletePausesLongerThan(0) removes all pauses with duration > 0.
-          deletePausesLongerThan(0);
-          pushToast({
-            title: `Removed ${count} pause${count === 1 ? "" : "s"}`,
-            description: "Use ⌘Z to restore.",
-          });
-        } finally {
-          setEditOperationLabel(null);
-        }
+    await withProcessingEdit("Removing pauses…", () => {
+      // deletePausesLongerThan(0) removes all pauses with duration > 0.
+      deletePausesLongerThan(0);
+      pushToast({
+        title: `Removed ${count} pause${count === 1 ? "" : "s"}`,
+        description: "Use ⌘Z to restore.",
       });
     });
   }
 
-  function handleRemovePausesLongerThan(seconds: number) {
+  async function handleRemovePausesLongerThan(seconds: number) {
     if (activePauses.length === 0) {
       pushToast({ title: "No pauses detected", description: "Run 'Show pauses' first." });
       return;
     }
-    setEditOperationLabel(`Removing pauses > ${seconds}s…`);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        try {
-          const removed = deletePausesLongerThan(seconds);
-          if (removed === 0) {
-            pushToast({
-              title: `No pauses longer than ${seconds}s`,
-              description: "Nothing to remove.",
-            });
-          } else {
-            pushToast({
-              title: `Removed ${removed} pause${removed === 1 ? "" : "s"} longer than ${seconds}s`,
-              description: "Use ⌘Z to restore.",
-            });
-          }
-        } finally {
-          setEditOperationLabel(null);
-        }
-      });
+    await withProcessingEdit("Removing pauses…", () => {
+      const removed = deletePausesLongerThan(seconds);
+      if (removed === 0) {
+        pushToast({
+          title: `No pauses longer than ${seconds}s`,
+          description: "Nothing to remove.",
+        });
+      } else {
+        pushToast({
+          title: `Removed ${removed} pause${removed === 1 ? "" : "s"} longer than ${seconds}s`,
+          description: "Use ⌘Z to restore.",
+        });
+      }
     });
   }
 
-  function handleShortenPauses(longerThan: number, shortenTo: number) {
+  async function handleShortenPauses(longerThan: number, shortenTo: number) {
     if (activePauses.length === 0) {
       pushToast({ title: "No pauses detected", description: "Run 'Show pauses' first." });
       return;
     }
-    setEditOperationLabel(`Shortening pauses > ${longerThan}s…`);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        try {
-          const shortened = shortenPausesLongerThan({ longerThan, shortenTo });
-          if (shortened === 0) {
-            pushToast({
-              title: `No pauses longer than ${longerThan}s`,
-              description: "Nothing to shorten.",
-            });
-          } else {
-            pushToast({
-              title: `Shortened ${shortened} pause${shortened === 1 ? "" : "s"} to ${shortenTo}s`,
-              description:
-                "Badges updated. Note: export trimming for shortened pauses is TODO Phase 2.",
-            });
-          }
-        } finally {
-          setEditOperationLabel(null);
-        }
-      });
+    await withProcessingEdit("Shortening pauses…", () => {
+      const shortened = shortenPausesLongerThan({ longerThan, shortenTo });
+      if (shortened === 0) {
+        pushToast({
+          title: `No pauses longer than ${longerThan}s`,
+          description: "Nothing to shorten.",
+        });
+      } else {
+        pushToast({
+          title: `Shortened ${shortened} pause${shortened === 1 ? "" : "s"} to ${shortenTo}s`,
+          description:
+            "Badges updated. Note: export trimming for shortened pauses is TODO Phase 2.",
+        });
+      }
     });
   }
 
@@ -317,11 +285,11 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="min-w-[200px]">
-          <DropdownMenuItem onClick={handleRemoveSilences} disabled={!hasMultipleWords}>
+          <DropdownMenuItem onClick={() => void handleRemoveSilences()} disabled={!hasMultipleWords}>
             <Scissors className="h-4 w-4 mr-2" />
             Trim silences
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleRemoveFillers} disabled={!hasWords}>
+          <DropdownMenuItem onClick={() => void handleRemoveFillers()} disabled={!hasWords}>
             <MessageSquareOff className="h-4 w-4 mr-2" />
             Remove fillers
           </DropdownMenuItem>
@@ -330,28 +298,28 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
             Show pauses
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={handleRemoveAllPauses}
+            onClick={() => void handleRemoveAllPauses()}
             disabled={activePauses.length === 0}
           >
             <AudioLines className="h-4 w-4 mr-2" />
             Remove all pauses{activePauses.length > 0 ? ` (${activePauses.length})` : ""}
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() => handleRemovePausesLongerThan(0.5)}
+            onClick={() => void handleRemovePausesLongerThan(0.5)}
             disabled={activePauses.length === 0}
           >
             <AudioLines className="h-4 w-4 mr-2" />
             Remove pauses &gt; 0.5s
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() => handleRemovePausesLongerThan(1.0)}
+            onClick={() => void handleRemovePausesLongerThan(1.0)}
             disabled={activePauses.length === 0}
           >
             <AudioLines className="h-4 w-4 mr-2" />
             Remove pauses &gt; 1.0s
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() => handleShortenPauses(1.0, 0.3)}
+            onClick={() => void handleShortenPauses(1.0, 0.3)}
             disabled={activePauses.length === 0}
           >
             <AudioLines className="h-4 w-4 mr-2" />

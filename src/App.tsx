@@ -4,6 +4,7 @@ import { TranscriptEditor } from "@/components/TranscriptEditor/TranscriptEditor
 import { VideoPreview } from "@/components/VideoPreview/VideoPreview";
 import { Waveform } from "@/components/Waveform/Waveform";
 import { StatusBar } from "@/components/StatusBar/StatusBar";
+import { ProcessingOverlay } from "@/components/ProcessingOverlay";
 import { Toaster } from "@/components/ui/toaster";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useAutoSave } from "@/hooks/useAutoSave";
@@ -259,6 +260,7 @@ export default function App() {
 
       <StatusBar />
 
+      <ProcessingOverlay />
       <Toaster />
     </div>
   );

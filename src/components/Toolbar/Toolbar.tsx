@@ -168,7 +168,6 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   const modelDownloadProgress = useUIStore((s) => s.modelDownloadProgress);
   const modelDownloadLabel = useUIStore((s) => s.modelDownloadLabel);
   const mediaLoading = useUIStore((s) => s.mediaLoading);
-  const editOperationLabel = useUIStore((s) => s.editOperationLabel);
   const pushToast = useUIStore((s) => s.pushToast);
   const setMediaLoading = useUIStore((s) => s.setMediaLoading);
   const setExportingProgress = useUIStore((s) => s.setExportingProgress);
@@ -1445,27 +1444,10 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
         </DialogContent>
       </Dialog>
 
-      {/* ── Generic "operation in progress" dialog (Trim silences, etc.) ── */}
-      <Dialog open={editOperationLabel !== null} onOpenChange={() => undefined}>
-        <DialogContent className="max-w-sm" hideClose>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Scissors className="h-4 w-4 text-primary" />
-              {editOperationLabel ?? "Processing…"}
-            </DialogTitle>
-            <DialogDescription>
-              Applying edits to the project — this will complete shortly.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Progress indeterminate />
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Working…</span>
-              <span>Please wait</span>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/*
+       * Heavy-edit progress is now shown by the global <ProcessingOverlay/>
+       * (driven by uiStore.isProcessingEdit), which also locks playback.
+       */}
 
       <MusicTracksDialog open={musicDialogOpen} onOpenChange={setMusicDialogOpen} />
       <SnapshotsDialog open={snapshotsDialogOpen} onOpenChange={setSnapshotsDialogOpen} />
