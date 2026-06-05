@@ -41,6 +41,10 @@ interface ProjectState {
   addMediaWithTranscript: (media: SourceMedia, words: Word[]) => void;
   deleteWords: (ids: Iterable<string>) => void;
   deleteOutputRange: (markIn: number, markOut: number) => number;
+  /** Delete every word whose source-media span overlaps [srcStart, srcEnd].
+   *  Use this with timestamps returned by ffmpeg silencedetect, which operates
+   *  on the original source file. Returns the count of words removed. */
+  deleteBySourceRange: (srcStart: number, srcEnd: number) => number;
   /** Delete every word whose text (case-insensitive, punctuation-stripped)
    *  matches one of the given tokens. Returns the count of words removed. */
   deleteWordsByText: (tokens: ReadonlySet<string>) => number;
@@ -118,6 +122,25 @@ export const useProjectStore = create<ProjectState>()(
       deleteOutputRange: (markIn, markOut) => {
         const project = _get().project;
         const ids = wordIdsInOutputRange(project, markIn, markOut);
+        if (ids.length === 0) return 0;
+        set({
+          project: deleteWords(project, new Set(ids)),
+          dirty: true,
+        });
+        return ids.length;
+      },
+
+      deleteBySourceRange: (srcStart, srcEnd) => {
+        const project = _get().project;
+        const ids: string[] = [];
+        for (const seg of project.segments) {
+          for (const w of seg.words) {
+            // word.start / word.end are already in source-media seconds
+            if (w.end > srcStart && w.start < srcEnd) {
+              ids.push(w.id);
+            }
+          }
+        }
         if (ids.length === 0) return 0;
         set({
           project: deleteWords(project, new Set(ids)),

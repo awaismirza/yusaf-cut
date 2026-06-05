@@ -43,7 +43,7 @@ export function stopNativeRecording(): Promise<string> {
 export type TranscriptionEngine = "whisper-cpp";
 
 /** whisper.cpp GGML model names (kebab-case, matches Rust WhisperModel). */
-export type WhisperModel = "tiny" | "base" | "small" | "medium" | "large-v3-turbo";
+export type WhisperModel = "tiny" | "base" | "small" | "medium" | "large-v3-turbo" | "large-v3";
 
 export interface TranscribeOptions {
   mediaId: string;
@@ -272,4 +272,27 @@ export function restoreSnapshot(projectPath: string, id: string): Promise<Projec
 
 export function deleteSnapshot(projectPath: string, id: string): Promise<void> {
   return invoke<void>("delete_snapshot", { projectPath, id });
+}
+
+// ---------------------------------------------------------------------------
+// Pause / silence detection
+// ---------------------------------------------------------------------------
+
+/** A contiguous silent range detected in the source media (source timestamps). */
+export interface PauseSegment {
+  start: number;
+  end: number;
+}
+
+export interface DetectPausesOpts {
+  mediaPath: string;
+  /** Noise floor in dB (negative). Default –35 dB. */
+  noiseThreshold?: number;
+  /** Minimum silence length in seconds. Default 0.5 s. */
+  minDuration?: number;
+}
+
+/** Run ffmpeg silencedetect on the source file and return silent ranges. */
+export function detectPauses(opts: DetectPausesOpts): Promise<PauseSegment[]> {
+  return invoke<PauseSegment[]>("detect_pauses", opts);
 }

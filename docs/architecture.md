@@ -10,7 +10,7 @@ This document explains how the code maps to the spec at the repo root.
 │                                                                  │
 │   ┌───────────────────────┐   ┌────────────────────────────────┐ │
 │   │ TranscriptEditor      │   │ VideoPreview / Waveform        │ │
-│   │ (TipTap + Word node)  │◀──┤ (HTML5 <video> + WaveSurfer)   │ │
+│   │ (TipTap + Word/Pause) │◀──┤ (HTML5 <video> + WaveSurfer)   │ │
 │   └─────────┬─────────────┘   └────────────┬───────────────────┘ │
 │             │                              │                     │
 │             ▼                              ▼                     │
@@ -29,7 +29,7 @@ This document explains how the code maps to the spec at the repo root.
 │ Rust backend (src-tauri/)                                        │
 │                                                                  │
 │   commands/{media,transcribe,project,export,snapshots,llm,       │
-│             jobs,misc}                                           │
+│             jobs,misc,pauses}                                    │
 │   ├── parse_ffprobe_json  (pure, tested)                         │
 │   ├── parse_whisper_json  (pure, tested)                         │
 │   └── filter graph builder (pure, tested)                        │

@@ -55,6 +55,7 @@ pub fn run() {
             commands::snapshots::delete_snapshot,
             commands::misc::app_data_dir,
             commands::misc::reveal_in_finder,
+            commands::pauses::detect_pauses,
         ])
         .setup(|app| {
             // Best-effort persistence of the jobs queue across restarts.

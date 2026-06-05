@@ -303,6 +303,29 @@
   background-color: hsl(var(--delete) / 0.06);
 }
 
+/* Pause-duration badges — e.g. [0.6s] injected between words */
+.pause-marker {
+  display: inline-block;
+  margin: 0 3px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.72em;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  cursor: pointer;
+  user-select: none;
+  vertical-align: baseline;
+  transition: background 0.1s, color 0.1s;
+}
+
+.pause-marker:hover {
+  background: hsl(var(--destructive) / 0.12);
+  color: hsl(var(--destructive));
+  border-color: hsl(var(--destructive) / 0.3);
+}
+
 /* Low-confidence words — subtle wavy underline */
 .transcript-editor .word.low-confidence {
   text-decoration: underline wavy;
