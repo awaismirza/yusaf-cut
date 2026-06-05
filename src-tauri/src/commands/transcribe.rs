@@ -185,6 +185,7 @@ pub async fn list_models(app: AppHandle) -> Result<Vec<ModelInfo>, String> {
         WhisperModel::Small,
         WhisperModel::Medium,
         WhisperModel::LargeV3Turbo,
+        WhisperModel::LargeV3,
     ]
     .iter()
     .map(|&m| ModelInfo {
@@ -322,6 +323,45 @@ pub async fn download_model(
         Err(e) => job.mark_failed(e.clone()).await,
     }
     result
+}
+
+// ---------------------------------------------------------------------------
+// delete_model  — remove downloaded GGML bin + Core ML encoder directory
+// ---------------------------------------------------------------------------
+
+/// Delete a downloaded whisper.cpp model and its associated Core ML encoder.
+///
+/// Missing files are silently ignored — only real filesystem errors are returned.
+/// The `engine` argument is accepted for API consistency but always treated as
+/// `WhisperCpp` (the only supported engine).
+#[tauri::command]
+pub async fn delete_model(
+    app: AppHandle,
+    _engine: TranscriptionEngine,
+    name: String,
+) -> Result<(), String> {
+    let model: WhisperModel = serde_json::from_value(serde_json::Value::String(name))
+        .map_err(|e| format!("unknown model: {e}"))?;
+
+    let dir = models_dir(&app)?;
+
+    // Remove the GGML binary (.bin).
+    let bin_path = dir.join(model.filename());
+    if bin_path.exists() {
+        fs::remove_file(&bin_path)
+            .await
+            .map_err(|e| format!("failed to remove {}: {e}", bin_path.display()))?;
+    }
+
+    // Remove the Core ML encoder directory (.mlmodelc) if present.
+    let encoder_dir = dir.join(model.coreml_encoder_dir());
+    if encoder_dir.exists() {
+        fs::remove_dir_all(&encoder_dir)
+            .await
+            .map_err(|e| format!("failed to remove {}: {e}", encoder_dir.display()))?;
+    }
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

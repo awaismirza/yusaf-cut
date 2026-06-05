@@ -19,6 +19,7 @@ import { replaceProjectBaseline, useProjectStore } from "@/stores/projectStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  deleteModel,
   downloadModel,
   exportVideo,
   importMedia,
@@ -80,6 +81,7 @@ const MODELS: { name: WhisperModel; label: string; sizeMb: number }[] = [
   { name: "small", label: "Small", sizeMb: 466 },
   { name: "medium", label: "Medium", sizeMb: 1500 },
   { name: "large-v3-turbo", label: "Large v3 Turbo (recommended)", sizeMb: 1600 },
+  { name: "large-v3", label: "Large v3 (max accuracy, 3.1 GB)", sizeMb: 3100 },
 ];
 
 /** ISO 639-1 languages Whisper supports well. */
@@ -192,6 +194,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   // Which model is currently being downloaded inside the dialog, and its progress.
   const [downloadingModel, setDownloadingModel] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [deletingModel, setDeletingModel] = useState<string | null>(null);
   const [recordDialogOpen, setRecordDialogOpen] = useState(false);
   const [musicDialogOpen, setMusicDialogOpen] = useState(false);
   const [snapshotsDialogOpen, setSnapshotsDialogOpen] = useState(false);
@@ -481,6 +484,46 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       unlistenDownloadRef.current = null;
       setDownloadingModel(null);
       setDownloadProgress(0);
+    }
+  }
+
+  /** Delete a downloaded model after confirmation. */
+  async function handleDeleteModel(name: string) {
+    // Prevent deletion while a transcription using this model is running.
+    if (transcribeProgress !== null && selectedModel === name) {
+      pushToast({
+        title: "Cannot remove model",
+        description: "A transcription is currently running with this model. Wait for it to finish.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const confirmed = window.confirm("Remove this downloaded model from your computer?");
+    if (!confirmed) return;
+
+    setDeletingModel(name);
+    try {
+      await deleteModel("whisper-cpp", name);
+      setInstalledModels((prev) =>
+        prev.map((m) => (m.name === name ? { ...m, installed: false } : m)),
+      );
+      // If the deleted model was selected, fall back to large-v3-turbo if installed.
+      if (selectedModel === name) {
+        const fallback = installedModels.find(
+          (m) => m.name !== name && m.installed,
+        );
+        if (fallback) setSelectedModel(fallback.name as WhisperModel);
+      }
+      pushToast({ title: "Model removed", description: `${name} deleted from disk.` });
+    } catch (err) {
+      pushToast({
+        title: "Remove failed",
+        description: String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingModel(null);
     }
   }
 
@@ -931,6 +974,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
               const installed = installedModels.find((i) => i.name === m.name)?.installed ?? false;
               const isDownloading = downloadingModel === m.name;
               const isOtherDownloading = downloadingModel !== null && !isDownloading;
+              const isDeleting = deletingModel === m.name;
               const isSelected = selectedModel === m.name;
 
               return (
@@ -953,10 +997,25 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
                       {m.label}
                     </label>
                     {installed ? (
-                      <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        Installed
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          Installed
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          disabled={isDeleting || downloadingModel !== null || transcribeProgress !== null}
+                          title="Remove this model from disk"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDeleteModel(m.name);
+                          }}
+                        >
+                          {isDeleting ? "Removing…" : "Remove"}
+                        </Button>
+                      </div>
                     ) : isDownloading ? (
                       <span className="text-xs text-muted-foreground">
                         {Math.round(downloadProgress * 100)}%
