@@ -313,5 +313,8 @@ export interface DetectPausesOpts {
 
 /** Run ffmpeg silencedetect on the source file and return silent ranges. */
 export function detectPauses(opts: DetectPausesOpts): Promise<PauseSegment[]> {
-  return invoke<PauseSegment[]>("detect_pauses", opts);
+  const args: Record<string, unknown> = { mediaPath: opts.mediaPath };
+  if (opts.noiseThreshold !== undefined) args.noiseThreshold = opts.noiseThreshold;
+  if (opts.minDuration !== undefined) args.minDuration = opts.minDuration;
+  return invoke<PauseSegment[]>("detect_pauses", args);
 }
