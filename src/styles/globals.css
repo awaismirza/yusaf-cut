@@ -20,6 +20,10 @@
     --input: 240 5.9% 90%;
     --ring: 240 5.9% 10%;
     --radius: 0.5rem;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
   }
 
   /* ── YusafCut Editor design tokens — warm-neutral dark + teal accent ────
@@ -43,6 +47,10 @@
     --border: 30 4% 24%;
     --input: 30 4% 24%;
     --ring: 188 60% 55%;
+    --popover: 30 4% 15%; /* slightly elevated above background (12%) */
+    --popover-foreground: 30 5% 96%;
+    --card: 30 4% 14%;
+    --card-foreground: 30 5% 96%;
 
     /* YusafCut semantic tokens (not part of shadcn's set) */
     --filler: 42 70% 65%; /* amber — filler word highlight */
