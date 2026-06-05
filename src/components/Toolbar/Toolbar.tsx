@@ -19,6 +19,8 @@ import { replaceProjectBaseline, useProjectStore } from "@/stores/projectStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  deleteModel,
+  detectPauses,
   downloadModel,
   exportVideo,
   importMedia,
@@ -80,6 +82,7 @@ const MODELS: { name: WhisperModel; label: string; sizeMb: number }[] = [
   { name: "small", label: "Small", sizeMb: 466 },
   { name: "medium", label: "Medium", sizeMb: 1500 },
   { name: "large-v3-turbo", label: "Large v3 Turbo (recommended)", sizeMb: 1600 },
+  { name: "large-v3", label: "Large v3 (max accuracy, 3.1 GB)", sizeMb: 3100 },
 ];
 
 /** ISO 639-1 languages Whisper supports well. */
@@ -163,8 +166,8 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   const transcribeProgress = useUIStore((s) => s.transcribeProgress);
   const exportingProgress = useUIStore((s) => s.exportingProgress);
   const modelDownloadProgress = useUIStore((s) => s.modelDownloadProgress);
+  const modelDownloadLabel = useUIStore((s) => s.modelDownloadLabel);
   const mediaLoading = useUIStore((s) => s.mediaLoading);
-  const editOperationLabel = useUIStore((s) => s.editOperationLabel);
   const pushToast = useUIStore((s) => s.pushToast);
   const setMediaLoading = useUIStore((s) => s.setMediaLoading);
   const setExportingProgress = useUIStore((s) => s.setExportingProgress);
@@ -192,6 +195,8 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   // Which model is currently being downloaded inside the dialog, and its progress.
   const [downloadingModel, setDownloadingModel] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadLabel, setDownloadLabel] = useState("Downloading…");
+  const [deletingModel, setDeletingModel] = useState<string | null>(null);
   const [recordDialogOpen, setRecordDialogOpen] = useState(false);
   const [musicDialogOpen, setMusicDialogOpen] = useState(false);
   const [snapshotsDialogOpen, setSnapshotsDialogOpen] = useState(false);
@@ -370,6 +375,11 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
         { dirty: true, filePath: null },
       );
       pushToast({ title: "Recording transcribed", description: `${result.words.length} words` });
+
+      // Auto-surface pauses for the recording too (best-effort, non-blocking).
+      if (result.words.length > 0) {
+        await autoDetectPauses(media.path);
+      }
     } catch (err) {
       pushToast({
         title: "Recording import/transcription failed",
@@ -458,7 +468,10 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
 
     // Subscribe to download progress events so the inline bar updates live.
     const unlisten = await onModelDownloadProgress((p) => {
-      if (p.name === name) setDownloadProgress(p.progress);
+      if (p.name === name) {
+        setDownloadProgress(p.progress);
+        if (p.label) setDownloadLabel(p.label);
+      }
     });
     unlistenDownloadRef.current = unlisten;
 
@@ -481,6 +494,47 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       unlistenDownloadRef.current = null;
       setDownloadingModel(null);
       setDownloadProgress(0);
+      setDownloadLabel("Downloading…");
+    }
+  }
+
+  /** Delete a downloaded model after confirmation. */
+  async function handleDeleteModel(name: string) {
+    // Prevent deletion while a transcription using this model is running.
+    if (transcribeProgress !== null && selectedModel === name) {
+      pushToast({
+        title: "Cannot remove model",
+        description: "A transcription is currently running with this model. Wait for it to finish.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const confirmed = window.confirm("Remove this downloaded model from your computer?");
+    if (!confirmed) return;
+
+    setDeletingModel(name);
+    try {
+      await deleteModel("whisper-cpp", name);
+      setInstalledModels((prev) =>
+        prev.map((m) => (m.name === name ? { ...m, installed: false } : m)),
+      );
+      // If the deleted model was selected, fall back to large-v3-turbo if installed.
+      if (selectedModel === name) {
+        const fallback = installedModels.find(
+          (m) => m.name !== name && m.installed,
+        );
+        if (fallback) setSelectedModel(fallback.name as WhisperModel);
+      }
+      pushToast({ title: "Model removed", description: `${name} deleted from disk.` });
+    } catch (err) {
+      pushToast({
+        title: "Remove failed",
+        description: String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingModel(null);
     }
   }
 
@@ -493,6 +547,30 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
       setDownloadProgress(0);
     }
   }, [modelDialogOpen]);
+
+  /**
+   * Best-effort pause detection for a freshly-transcribed clip. Stores the
+   * result in projectStore.pauseTokens (which always REPLACES, so re-running
+   * never duplicates badges) and surfaces a non-blocking toast. Failures here
+   * never fail transcription — they are reported but swallowed.
+   */
+  const autoDetectPauses = useCallback(
+    async (mediaPath: string) => {
+      try {
+        const pauses = await detectPauses({ mediaPath, noiseThreshold: -35, minDuration: 0.5 });
+        useProjectStore.getState().setPauseTokens(pauses);
+        pushToast(
+          pauses.length > 0
+            ? { title: `Detected ${pauses.length} pause${pauses.length === 1 ? "" : "s"}` }
+            : { title: "No pauses found" },
+        );
+      } catch (err) {
+        // Non-fatal: transcription already succeeded.
+        pushToast({ title: "Pause detection failed", description: String(err) });
+      }
+    },
+    [pushToast],
+  );
 
   async function startTranscribe() {
     setModelDialogOpen(false);
@@ -574,6 +652,13 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
             ? `${totalWords} words across ${mediaIds.length} clip${mediaIds.length === 1 ? "" : "s"}`
             : "All clips already had transcript text",
       });
+
+      // Automatically surface pauses so the user sees inline [0.6s] badges
+      // without having to open Edit → Show pauses. Best-effort, non-blocking.
+      const primaryPath = Object.values(nextProject.media)[0]?.path;
+      if (primaryPath && totalWords > 0) {
+        await autoDetectPauses(primaryPath);
+      }
     } catch (err) {
       pushToast({
         title: force ? "Re-transcription failed" : "Transcription failed",
@@ -931,6 +1016,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
               const installed = installedModels.find((i) => i.name === m.name)?.installed ?? false;
               const isDownloading = downloadingModel === m.name;
               const isOtherDownloading = downloadingModel !== null && !isDownloading;
+              const isDeleting = deletingModel === m.name;
               const isSelected = selectedModel === m.name;
 
               return (
@@ -953,10 +1039,25 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
                       {m.label}
                     </label>
                     {installed ? (
-                      <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        Installed
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          Installed
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          disabled={isDeleting || downloadingModel !== null || transcribeProgress !== null}
+                          title="Remove this model from disk"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDeleteModel(m.name);
+                          }}
+                        >
+                          {isDeleting ? "Removing…" : "Remove"}
+                        </Button>
+                      </div>
                     ) : isDownloading ? (
                       <span className="text-xs text-muted-foreground">
                         {Math.round(downloadProgress * 100)}%
@@ -983,7 +1084,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
                     <div className="mt-2">
                       <Progress value={downloadProgress * 100} className="h-1.5" />
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Downloading… {Math.round(downloadProgress * 100)}% — do not close
+                        {downloadLabel} — {Math.round(downloadProgress * 100)}% — do not close
                       </p>
                     </div>
                   )}
@@ -1336,34 +1437,17 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
           <div className="space-y-3">
             <Progress value={(modelDownloadProgress ?? 0) * 100} />
             <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Model download</span>
+              <span>{modelDownloadLabel ?? "Downloading…"}</span>
               <span>{Math.round((modelDownloadProgress ?? 0) * 100)}%</span>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* ── Generic "operation in progress" dialog (Trim silences, etc.) ── */}
-      <Dialog open={editOperationLabel !== null} onOpenChange={() => undefined}>
-        <DialogContent className="max-w-sm" hideClose>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Scissors className="h-4 w-4 text-primary" />
-              {editOperationLabel ?? "Processing…"}
-            </DialogTitle>
-            <DialogDescription>
-              Applying edits to the project — this will complete shortly.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Progress indeterminate />
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Working…</span>
-              <span>Please wait</span>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/*
+       * Heavy-edit progress is now shown by the global <ProcessingOverlay/>
+       * (driven by uiStore.isProcessingEdit), which also locks playback.
+       */}
 
       <MusicTracksDialog open={musicDialogOpen} onOpenChange={setMusicDialogOpen} />
       <SnapshotsDialog open={snapshotsDialogOpen} onOpenChange={setSnapshotsDialogOpen} />

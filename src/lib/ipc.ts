@@ -43,7 +43,7 @@ export function stopNativeRecording(): Promise<string> {
 export type TranscriptionEngine = "whisper-cpp";
 
 /** whisper.cpp GGML model names (kebab-case, matches Rust WhisperModel). */
-export type WhisperModel = "tiny" | "base" | "small" | "medium" | "large-v3-turbo";
+export type WhisperModel = "tiny" | "base" | "small" | "medium" | "large-v3-turbo" | "large-v3";
 
 export interface TranscribeOptions {
   mediaId: string;
@@ -119,10 +119,19 @@ export function downloadModel(engine: TranscriptionEngine, name: string): Promis
   return invoke<void>("download_model", { engine, name });
 }
 
+/** Delete the downloaded GGML binary (and Core ML encoder) for a model. */
+export function deleteModel(engine: TranscriptionEngine, name: string): Promise<void> {
+  return invoke<void>("delete_model", { engine, name });
+}
+
 export interface ModelDownloadProgress {
   name: string;
-  /** 0..1 */
+  /** 0..1 combined progress across all phases */
   progress: number;
+  /** Current phase: "model" | "coreml" | "coreml-skipped" | "unzip" | "complete" */
+  phase?: string;
+  /** Human-readable label for the current phase, e.g. "Downloading model file" */
+  label?: string;
   bytesDownloaded: number;
   bytesTotal: number;
 }
@@ -272,4 +281,47 @@ export function restoreSnapshot(projectPath: string, id: string): Promise<Projec
 
 export function deleteSnapshot(projectPath: string, id: string): Promise<void> {
   return invoke<void>("delete_snapshot", { projectPath, id });
+}
+
+// ---------------------------------------------------------------------------
+// Pause / silence detection
+// ---------------------------------------------------------------------------
+
+/** A contiguous silent range detected in the source media (source timestamps). */
+export interface PauseSegment {
+  /** Stable UUID assigned by the backend at detection time. */
+  id: string;
+  start: number;
+  end: number;
+  /** `end - start` — pre-computed by the backend. */
+  duration: number;
+  /**
+   * True when this pause has been cut from the EDL.
+   * Set by the frontend; not returned by the backend.
+   */
+  deleted?: boolean;
+  /**
+   * When non-null, the pause has been visually shortened to this many seconds.
+   * NOTE (Phase 1): display-only — actual EDL segment trimming is TODO Phase 2.
+   */
+  shortenedTo?: number | null;
+}
+
+export interface DetectPausesOpts {
+  mediaPath: string;
+  /** Noise floor in dB (negative). Default –35 dB. */
+  noiseThreshold?: number;
+  /** Minimum silence length in seconds. Default 0.5 s. */
+  minDuration?: number;
+}
+
+/** Run ffmpeg silencedetect on the source file and return silent ranges. */
+export function detectPauses(opts: DetectPausesOpts): Promise<PauseSegment[]> {
+  const args: Record<string, unknown> = { mediaPath: opts.mediaPath };
+  if (opts.noiseThreshold !== undefined) args.noiseThreshold = opts.noiseThreshold;
+  if (opts.minDuration !== undefined) args.minDuration = opts.minDuration;
+  // The Rust command takes a single `opts: DetectPausesOpts` parameter, so the
+  // payload must be wrapped under an `opts` key — otherwise Tauri rejects the
+  // call with "missing required key opts".
+  return invoke<PauseSegment[]>("detect_pauses", { opts: args });
 }
