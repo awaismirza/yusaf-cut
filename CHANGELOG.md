@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-06-05
+
+### Added
+- **Delete downloaded model** — installed Whisper models now show a "Remove" button in the model settings dialog. Clicking it prompts for confirmation and deletes the GGML `.bin` file and associated Core ML encoder directory from disk, freeing up space. The Remove button is disabled while a transcription or download is in progress.
+- **`large-v3` model entry in settings UI** — the full large-v3 model (3.1 GB) is now visible in the model list so it can be downloaded and deleted from the same dialog.
+
+### Fixed
+- `list_models` now includes the `large-v3` variant that was added to the enum in v4.1.0 but omitted from the list response.
+
 ## [4.1.0] - 2026-06-05
 
 ### Added

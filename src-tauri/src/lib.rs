@@ -42,6 +42,7 @@ pub fn run() {
             commands::transcribe::transcribe,
             commands::transcribe::list_models,
             commands::transcribe::download_model,
+            commands::transcribe::delete_model,
             commands::project::save_project,
             commands::project::load_project,
             commands::project::relink_media,

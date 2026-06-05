@@ -119,6 +119,11 @@ export function downloadModel(engine: TranscriptionEngine, name: string): Promis
   return invoke<void>("download_model", { engine, name });
 }
 
+/** Delete the downloaded GGML binary (and Core ML encoder) for a model. */
+export function deleteModel(engine: TranscriptionEngine, name: string): Promise<void> {
+  return invoke<void>("delete_model", { engine, name });
+}
+
 export interface ModelDownloadProgress {
   name: string;
   /** 0..1 */
