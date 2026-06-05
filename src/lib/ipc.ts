@@ -285,8 +285,22 @@ export function deleteSnapshot(projectPath: string, id: string): Promise<void> {
 
 /** A contiguous silent range detected in the source media (source timestamps). */
 export interface PauseSegment {
+  /** Stable UUID assigned by the backend at detection time. */
+  id: string;
   start: number;
   end: number;
+  /** `end - start` — pre-computed by the backend. */
+  duration: number;
+  /**
+   * True when this pause has been cut from the EDL.
+   * Set by the frontend; not returned by the backend.
+   */
+  deleted?: boolean;
+  /**
+   * When non-null, the pause has been visually shortened to this many seconds.
+   * NOTE (Phase 1): display-only — actual EDL segment trimming is TODO Phase 2.
+   */
+  shortenedTo?: number | null;
 }
 
 export interface DetectPausesOpts {

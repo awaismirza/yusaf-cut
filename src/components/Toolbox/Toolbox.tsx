@@ -42,9 +42,11 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
   const project = useProjectStore((s) => s.project);
   const removeSilences = useProjectStore((s) => s.removeSilences);
   const deleteWordsByText = useProjectStore((s) => s.deleteWordsByText);
-  const deleteBySourceRange = useProjectStore((s) => s.deleteBySourceRange);
-  const detectedPauses = useUIStore((s) => s.detectedPauses);
-  const setDetectedPauses = useUIStore((s) => s.setDetectedPauses);
+  const pauseTokens = useProjectStore((s) => s.pauseTokens);
+  const setPauseTokens = useProjectStore((s) => s.setPauseTokens);
+  const deletePausesLongerThan = useProjectStore((s) => s.deletePausesLongerThan);
+  const shortenPausesLongerThan = useProjectStore((s) => s.shortenPausesLongerThan);
+  const activePauses = pauseTokens.filter((p) => !p.deleted);
   const addChapter = useProjectStore((s) => s.addChapter);
   const pushToast = useUIStore((s) => s.pushToast);
   const setEditOperationLabel = useUIStore((s) => s.setEditOperationLabel);
@@ -138,7 +140,8 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
     setEditOperationLabel("Detecting pauses…");
     try {
       const pauses = await detectPauses({ mediaPath, noiseThreshold: -35, minDuration: 0.5 });
-      setDetectedPauses(pauses);
+      // Always replace — prevents duplicate badges on repeated detection.
+      setPauseTokens(pauses);
       if (pauses.length === 0) {
         pushToast({
           title: "No pauses found",
@@ -146,8 +149,8 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
         });
       } else {
         pushToast({
-          title: `Found ${pauses.length} pause${pauses.length === 1 ? "" : "s"}`,
-          description: "Badges shown inline — click one to remove it, or use 'Remove all pauses'.",
+          title: `Detected ${pauses.length} pause${pauses.length === 1 ? "" : "s"}`,
+          description: "Badges shown inline — click to remove, or use the pause sub-menu.",
         });
       }
     } catch (e) {
@@ -158,25 +161,78 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
   }
 
   function handleRemoveAllPauses() {
-    if (detectedPauses.length === 0) {
+    if (activePauses.length === 0) {
       pushToast({ title: "No pauses to remove", description: "Run 'Show pauses' first." });
       return;
     }
+    const count = activePauses.length;
     setEditOperationLabel("Removing pauses…");
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         try {
-          let removed = 0;
-          for (const p of detectedPauses) {
-            removed += deleteBySourceRange(p.start, p.end);
-          }
-          setDetectedPauses([]);
+          // deletePausesLongerThan(0) removes all pauses with duration > 0.
+          deletePausesLongerThan(0);
           pushToast({
-            title: `Removed ${detectedPauses.length} pause${detectedPauses.length === 1 ? "" : "s"}`,
-            description: removed > 0
-              ? `${removed} word${removed === 1 ? "" : "s"} cut. Use ⌘Z to restore.`
-              : "Pauses cleared from transcript.",
+            title: `Removed ${count} pause${count === 1 ? "" : "s"}`,
+            description: "Use ⌘Z to restore.",
           });
+        } finally {
+          setEditOperationLabel(null);
+        }
+      });
+    });
+  }
+
+  function handleRemovePausesLongerThan(seconds: number) {
+    if (activePauses.length === 0) {
+      pushToast({ title: "No pauses detected", description: "Run 'Show pauses' first." });
+      return;
+    }
+    setEditOperationLabel(`Removing pauses > ${seconds}s…`);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          const removed = deletePausesLongerThan(seconds);
+          if (removed === 0) {
+            pushToast({
+              title: `No pauses longer than ${seconds}s`,
+              description: "Nothing to remove.",
+            });
+          } else {
+            pushToast({
+              title: `Removed ${removed} pause${removed === 1 ? "" : "s"} longer than ${seconds}s`,
+              description: "Use ⌘Z to restore.",
+            });
+          }
+        } finally {
+          setEditOperationLabel(null);
+        }
+      });
+    });
+  }
+
+  function handleShortenPauses(longerThan: number, shortenTo: number) {
+    if (activePauses.length === 0) {
+      pushToast({ title: "No pauses detected", description: "Run 'Show pauses' first." });
+      return;
+    }
+    setEditOperationLabel(`Shortening pauses > ${longerThan}s…`);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          const shortened = shortenPausesLongerThan({ longerThan, shortenTo });
+          if (shortened === 0) {
+            pushToast({
+              title: `No pauses longer than ${longerThan}s`,
+              description: "Nothing to shorten.",
+            });
+          } else {
+            pushToast({
+              title: `Shortened ${shortened} pause${shortened === 1 ? "" : "s"} to ${shortenTo}s`,
+              description:
+                "Badges updated. Note: export trimming for shortened pauses is TODO Phase 2.",
+            });
+          }
         } finally {
           setEditOperationLabel(null);
         }
@@ -275,10 +331,31 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={handleRemoveAllPauses}
-            disabled={detectedPauses.length === 0}
+            disabled={activePauses.length === 0}
           >
             <AudioLines className="h-4 w-4 mr-2" />
-            Remove all pauses{detectedPauses.length > 0 ? ` (${detectedPauses.length})` : ""}
+            Remove all pauses{activePauses.length > 0 ? ` (${activePauses.length})` : ""}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => handleRemovePausesLongerThan(0.5)}
+            disabled={activePauses.length === 0}
+          >
+            <AudioLines className="h-4 w-4 mr-2" />
+            Remove pauses &gt; 0.5s
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => handleRemovePausesLongerThan(1.0)}
+            disabled={activePauses.length === 0}
+          >
+            <AudioLines className="h-4 w-4 mr-2" />
+            Remove pauses &gt; 1.0s
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => handleShortenPauses(1.0, 0.3)}
+            disabled={activePauses.length === 0}
+          >
+            <AudioLines className="h-4 w-4 mr-2" />
+            Shorten pauses &gt; 1.0s to 0.3s
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem

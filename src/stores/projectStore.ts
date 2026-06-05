@@ -27,6 +27,7 @@ import {
   type SourceMedia,
   type Word,
 } from "@/lib/edl";
+import type { PauseSegment } from "@/lib/ipc";
 
 interface ProjectState {
   project: Project;
@@ -45,6 +46,17 @@ interface ProjectState {
    *  Use this with timestamps returned by ffmpeg silencedetect, which operates
    *  on the original source file. Returns the count of words removed. */
   deleteBySourceRange: (srcStart: number, srcEnd: number) => number;
+  /**
+   * Delete only words whose **full** source-media span falls within
+   * [srcStart, srcEnd] (±30 ms tolerance).  Safer than `deleteBySourceRange`
+   * for cutting silences because it does not accidentally delete a word that
+   * merely abuts the silence boundary.  Returns the count of words removed.
+   *
+   * NOTE: Silent gaps themselves (the space between words in the same segment)
+   * are not explicitly removed from the export timeline in Phase 1.  That
+   * requires segment splitting and is planned for Phase 2.
+   */
+  deleteSilenceRange: (srcStart: number, srcEnd: number) => number;
   /** Delete every word whose text (case-insensitive, punctuation-stripped)
    *  matches one of the given tokens. Returns the count of words removed. */
   deleteWordsByText: (tokens: ReadonlySet<string>) => number;
@@ -82,6 +94,62 @@ interface ProjectState {
   addMediaOnly: (media: SourceMedia) => void;
   markSaved: (path: string) => void;
   closeProject: () => void;
+
+  // ---------------------------------------------------------------------------
+  // Pause tokens — detected silences displayed as inline [0.6s] badges.
+  //
+  // Stored here (rather than uiStore) so they survive undo/redo of EDL edits
+  // and can eventually be saved with the project file.
+  //
+  // Phase 1 limitation: pauseTokens are NOT yet written to the .scribe bundle.
+  // TODO Phase 2: serialize pauseTokens into project.json so they reload.
+  // ---------------------------------------------------------------------------
+
+  /** Currently detected pause segments for the loaded project. */
+  pauseTokens: PauseSegment[];
+  /** Replace the pause list (e.g. after a fresh detect_pauses run). */
+  setPauseTokens: (pauses: PauseSegment[]) => void;
+  /** Remove a pause token by id without touching the EDL. */
+  removePauseToken: (id: string) => void;
+  /** Mark a pause as deleted (EDL cut already applied elsewhere). */
+  markPauseDeleted: (id: string) => void;
+  /** Cut the EDL source range for this pause AND remove it from the list. */
+  deletePauseById: (id: string) => void;
+  /**
+   * Cut the source range for every pause longer than `seconds` and remove
+   * those tokens.  Returns the count of pauses deleted.
+   */
+  deletePausesLongerThan: (seconds: number) => number;
+  /**
+   * Visually shorten all pauses longer than `longerThan` to `shortenTo`
+   * seconds by updating `shortenedTo` on matching tokens.
+   *
+   * NOTE Phase 1: This updates the displayed badge only.  Actual EDL segment
+   * trimming (cutting silence from the export timeline) requires segment
+   * splitting and is planned for Phase 2.
+   *
+   * Returns the count of pauses shortened.
+   */
+  shortenPausesLongerThan: (opts: { longerThan: number; shortenTo: number }) => number;
+}
+
+/**
+ * When cutting a silence range, only delete words whose FULL source span is
+ * within [srcStart, srcEnd].  A 30 ms tolerance prevents accidentally deleting
+ * a word that merely abuts the silence boundary.
+ */
+const SILENCE_TOLERANCE = 0.03;
+
+function computeSilenceWordIds(project: Project, srcStart: number, srcEnd: number): string[] {
+  const ids: string[] = [];
+  for (const seg of project.segments) {
+    for (const w of seg.words) {
+      if (w.start >= srcStart - SILENCE_TOLERANCE && w.end <= srcEnd + SILENCE_TOLERANCE) {
+        ids.push(w.id);
+      }
+    }
+  }
+  return ids;
 }
 
 /** Strip surrounding punctuation/whitespace and lowercase. */
@@ -98,6 +166,7 @@ export const useProjectStore = create<ProjectState>()(
       project: newProject("Untitled"),
       dirty: false,
       filePath: null,
+      pauseTokens: [],
 
       setProject: (p) => set({ project: p, dirty: true }),
 
@@ -146,6 +215,14 @@ export const useProjectStore = create<ProjectState>()(
           project: deleteWords(project, new Set(ids)),
           dirty: true,
         });
+        return ids.length;
+      },
+
+      deleteSilenceRange: (srcStart, srcEnd) => {
+        const project = _get().project;
+        const ids = computeSilenceWordIds(project, srcStart, srcEnd);
+        if (ids.length === 0) return 0;
+        set({ project: deleteWords(project, new Set(ids)), dirty: true });
         return ids.length;
       },
 
@@ -264,7 +341,72 @@ export const useProjectStore = create<ProjectState>()(
           project: newProject("Untitled"),
           dirty: false,
           filePath: null,
+          pauseTokens: [],
         }),
+
+      // -----------------------------------------------------------------------
+      // Pause token actions
+      // -----------------------------------------------------------------------
+
+      setPauseTokens: (pauses) => set({ pauseTokens: pauses }),
+
+      removePauseToken: (id) =>
+        set((s) => ({ pauseTokens: s.pauseTokens.filter((p) => p.id !== id) })),
+
+      markPauseDeleted: (id) =>
+        set((s) => ({
+          pauseTokens: s.pauseTokens.map((p) => (p.id === id ? { ...p, deleted: true } : p)),
+        })),
+
+      deletePauseById: (id) => {
+        const { pauseTokens } = _get();
+        const pause = pauseTokens.find((p) => p.id === id);
+        if (!pause) return;
+        const project = _get().project;
+        const wordIds = computeSilenceWordIds(project, pause.start, pause.end);
+        set({
+          project: wordIds.length > 0 ? deleteWords(project, new Set(wordIds)) : project,
+          dirty: wordIds.length > 0,
+          pauseTokens: pauseTokens.filter((p) => p.id !== id),
+        });
+      },
+
+      deletePausesLongerThan: (seconds) => {
+        const { pauseTokens } = _get();
+        const targets = pauseTokens.filter((p) => !p.deleted && p.duration > seconds);
+        if (targets.length === 0) return 0;
+        let project = _get().project;
+        let anyDeleted = false;
+        for (const pause of targets) {
+          const wordIds = computeSilenceWordIds(project, pause.start, pause.end);
+          if (wordIds.length > 0) {
+            project = deleteWords(project, new Set(wordIds));
+            anyDeleted = true;
+          }
+        }
+        const targetIds = new Set(targets.map((p) => p.id));
+        set({
+          project,
+          dirty: anyDeleted,
+          pauseTokens: pauseTokens.filter((p) => !targetIds.has(p.id)),
+        });
+        return targets.length;
+      },
+
+      shortenPausesLongerThan: ({ longerThan, shortenTo }) => {
+        const { pauseTokens } = _get();
+        const targets = pauseTokens.filter((p) => !p.deleted && p.duration > longerThan);
+        if (targets.length === 0) return 0;
+        const targetIds = new Set(targets.map((p) => p.id));
+        set({
+          pauseTokens: pauseTokens.map((p) =>
+            targetIds.has(p.id) ? { ...p, shortenedTo: shortenTo } : p,
+          ),
+        });
+        // TODO Phase 2: trim the source segment to remove (pause.start + shortenTo, pause.end)
+        // from the export timeline.  This requires an EDL segment-splitting operation.
+        return targets.length;
+      },
     }),
     {
       // Per spec: cap undo at 50 steps.

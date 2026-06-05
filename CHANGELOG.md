@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-06-05
+
+### Changed
+- **Pause tokens hardened (Phase 1)** — `PauseSegment` now carries a stable UUID `id`, pre-computed `duration`, and optional `deleted`/`shortenedTo` fields. The Rust parser rejects invalid ranges (`end ≤ start`) and orphaned `silence_end` lines without a matching `silence_start`.
+- **Pause state moved to `projectStore`** — `pauseTokens` is now stored in `projectStore` (not `uiStore`) so it persists across undo/redo of EDL edits and is co-located with the project. `uiStore.detectedPauses` has been removed.
+- **Safer silence deletion** — new `deleteSilenceRange` store action only removes words whose full source span falls within the silence boundary (±30 ms tolerance), preventing accidental deletion of words that merely abut the silence.
+- **Pause badge identified by UUID** — `PauseNode` now carries a `pauseId` attr; click and keyboard Delete both use the id to target the correct pause, replacing the fragile float-equality lookup.
+- **Keyboard Delete/Backspace** on a selected pause badge now removes that pause.
+- **No duplicate badges** — calling "Show pauses" again replaces the entire list via `setPauseTokens`, never appends.
+
+### Added
+- New Toolbox Edit menu items: **"Remove pauses > 0.5s"**, **"Remove pauses > 1.0s"**, **"Shorten pauses > 1.0s to 0.3s"**.
+- New `projectStore` actions: `setPauseTokens`, `removePauseToken`, `markPauseDeleted`, `deletePauseById`, `deletePausesLongerThan`, `shortenPausesLongerThan`.
+- Five new Rust unit tests: typical output, no silence, malformed lines, orphaned `silence_end`, invalid range.
+
+### Known Limitations (TODO Phase 2)
+- `shortenPausesLongerThan` updates the badge display only — actual EDL segment trimming (removing silence from the export timeline) requires splitting segments and is not yet implemented.
+- `pauseTokens` are not serialized into the `.scribe` project bundle; they are lost on reload.
+
 ## [4.2.0] - 2026-06-05
 
 ### Added

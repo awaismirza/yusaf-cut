@@ -26,7 +26,6 @@ import { FILLER_WORDS, WordNode } from "./WordNode";
 import { PauseNode } from "./PauseNode";
 import { useProjectStore, useTemporalProjectStore } from "@/stores/projectStore";
 import { usePlayerStore } from "@/stores/playerStore";
-import { useUIStore } from "@/stores/uiStore";
 import { computeTimeline, wordIdToOutputTime, type Word } from "@/lib/edl";
 import { formatTimecode } from "@/lib/timecode";
 import { Button } from "@/components/ui/button";
@@ -123,10 +122,10 @@ export function TranscriptEditor({
 }: TranscriptEditorProps) {
   const project = useProjectStore((s) => s.project);
   const deleteWordsByText = useProjectStore((s) => s.deleteWordsByText);
-  const deleteBySourceRange = useProjectStore((s) => s.deleteBySourceRange);
+  const deletePauseById = useProjectStore((s) => s.deletePauseById);
   const setSelectedWordIds = usePlayerStore((s) => s.setSelectedWordIds);
-  const detectedPauses = useUIStore((s) => s.detectedPauses);
-  const setDetectedPauses = useUIStore((s) => s.setDetectedPauses);
+  // Pause tokens now live in projectStore so they survive undo/redo of EDL edits.
+  const pauseTokens = useProjectStore((s) => s.pauseTokens);
   const selectedWordIds = usePlayerStore((s) => s.selectedWordIds);
   const undo = useTemporalProjectStore((t) => t.undo);
   const pastStates = useTemporalProjectStore((t) => t.pastStates);
@@ -175,17 +174,11 @@ export function TranscriptEditor({
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed) return;
 
-      // Pause badge click: remove that pause from the EDL + from detected list.
+      // Pause badge click: remove that pause by its stable id.
       const pauseEl = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-pause]");
       if (pauseEl && containerRef.current?.contains(pauseEl)) {
-        const srcStart = Number(pauseEl.dataset.srcStart);
-        const srcEnd = Number(pauseEl.dataset.srcEnd);
-        if (!Number.isNaN(srcStart) && !Number.isNaN(srcEnd)) {
-          deleteBySourceRange(srcStart, srcEnd);
-          setDetectedPauses(
-            detectedPauses.filter((p) => !(p.start === srcStart && p.end === srcEnd)),
-          );
-        }
+        const pauseId = pauseEl.dataset.pauseId;
+        if (pauseId) deletePauseById(pauseId);
         return;
       }
 
@@ -199,12 +192,28 @@ export function TranscriptEditor({
         new CustomEvent("yusafcut:seek-output", { detail: { time: mapped.outputTime, play: true } }),
       );
     },
-    [project, detectedPauses, deleteBySourceRange, setDetectedPauses],
+    [project, deletePauseById],
   );
 
-  // Re-render the TipTap document whenever the EDL or detected pauses change.
+  // Wire up keyboard deletion for selected pause nodes (fired by PauseNode's
+  // addKeyboardShortcuts).  The custom event carries the stable pauseId.
+  useEffect(() => {
+    function onDeletePause(e: Event) {
+      const pauseId = (e as CustomEvent<{ pauseId: string }>).detail.pauseId;
+      if (pauseId) deletePauseById(pauseId);
+    }
+    window.addEventListener("yusafcut:delete-pause", onDeletePause);
+    return () => window.removeEventListener("yusafcut:delete-pause", onDeletePause);
+  }, [deletePauseById]);
+
+  // Re-render the TipTap document whenever the EDL or pause tokens change.
+  // Pauses marked as `deleted` are omitted from the rebuild so they disappear
+  // immediately — no duplicate badge problem since setPauseTokens always replaces.
   useEffect(() => {
     if (!editor) return;
+    // Only show active (non-deleted) pauses.
+    const activePauses = pauseTokens.filter((p) => !p.deleted);
+
     const cleanDoc = {
       type: "doc",
       content: paragraphs.map((para) => ({
@@ -225,17 +234,20 @@ export function TranscriptEditor({
 
           const nextWord = para.words[i + 1];
           if (nextWord) {
-            // Inject a pause badge if a detected pause falls entirely in this gap.
-            const pause = detectedPauses.find(
+            // Inject a pause badge if an active pause falls entirely in this gap.
+            const pause = activePauses.find(
               (p) => p.start >= w.end && p.end <= nextWord.start,
             );
             if (pause) {
+              // If the pause has been visually shortened, show the shorter duration.
+              const displayDuration = pause.shortenedTo ?? pause.duration;
               nodes.push({
                 type: "pause",
                 attrs: {
+                  pauseId: pause.id,
                   srcStart: pause.start,
                   srcEnd: pause.end,
-                  duration: pause.end - pause.start,
+                  duration: displayDuration,
                 },
               });
             }
@@ -248,7 +260,7 @@ export function TranscriptEditor({
     };
 
     editor.commands.setContent(cleanDoc as never, false);
-  }, [editor, paragraphs, detectedPauses]);
+  }, [editor, paragraphs, pauseTokens]);
 
   // Measure paragraph positions so the floating timestamp column lines up.
   // Re-measures on layout changes (resize, content change).
