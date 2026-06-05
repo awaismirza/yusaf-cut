@@ -15,6 +15,8 @@ interface UIState {
   toasts: Toast[];
   exportingProgress: number | null;
   modelDownloadProgress: number | null;
+  /** Human-readable label for the current download phase, e.g. "Downloading Core ML encoder" */
+  modelDownloadLabel: string | null;
   transcribeProgress: number | null;
   mediaLoading: boolean;
   /**
@@ -30,6 +32,7 @@ interface UIState {
 
   setExportingProgress: (p: number | null) => void;
   setModelDownloadProgress: (p: number | null) => void;
+  setModelDownloadLabel: (label: string | null) => void;
   setTranscribeProgress: (p: number | null) => void;
   setMediaLoading: (loading: boolean) => void;
   setEditOperationLabel: (label: string | null) => void;
@@ -40,6 +43,7 @@ export const useUIStore = create<UIState>((set) => ({
   toasts: [],
   exportingProgress: null,
   modelDownloadProgress: null,
+  modelDownloadLabel: null,
   transcribeProgress: null,
   mediaLoading: false,
   editOperationLabel: null,
@@ -56,6 +60,7 @@ export const useUIStore = create<UIState>((set) => ({
 
   setExportingProgress: (p) => set({ exportingProgress: p }),
   setModelDownloadProgress: (p) => set({ modelDownloadProgress: p }),
+  setModelDownloadLabel: (label) => set({ modelDownloadLabel: label }),
   setTranscribeProgress: (p) => set({ transcribeProgress: p }),
   setMediaLoading: (loading) => set({ mediaLoading: loading }),
   setEditOperationLabel: (label) => set({ editOperationLabel: label }),

@@ -126,8 +126,12 @@ export function deleteModel(engine: TranscriptionEngine, name: string): Promise<
 
 export interface ModelDownloadProgress {
   name: string;
-  /** 0..1 */
+  /** 0..1 combined progress across all phases */
   progress: number;
+  /** Current phase: "model" | "coreml" | "coreml-skipped" | "unzip" | "complete" */
+  phase?: string;
+  /** Human-readable label for the current phase, e.g. "Downloading model file" */
+  label?: string;
   bytesDownloaded: number;
   bytesTotal: number;
 }

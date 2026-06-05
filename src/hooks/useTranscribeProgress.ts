@@ -15,6 +15,7 @@ export function useTranscribeProgress() {
   const setTranscribeProgress = useUIStore((s) => s.setTranscribeProgress);
   const setExportingProgress = useUIStore((s) => s.setExportingProgress);
   const setModelDownloadProgress = useUIStore((s) => s.setModelDownloadProgress);
+  const setModelDownloadLabel = useUIStore((s) => s.setModelDownloadLabel);
 
   useEffect(() => {
     let unlistenTranscribe: (() => void) | undefined;
@@ -34,7 +35,9 @@ export function useTranscribeProgress() {
     });
 
     void onModelDownloadProgress((p) => {
-      setModelDownloadProgress(p.progress >= 1 ? null : p.progress);
+      const done = p.progress >= 1;
+      setModelDownloadProgress(done ? null : p.progress);
+      setModelDownloadLabel(done ? null : (p.label ?? null));
     }).then((fn) => {
       unlistenModel = fn;
     });
@@ -44,5 +47,5 @@ export function useTranscribeProgress() {
       unlistenExport?.();
       unlistenModel?.();
     };
-  }, [setTranscribeProgress, setExportingProgress, setModelDownloadProgress]);
+  }, [setTranscribeProgress, setExportingProgress, setModelDownloadProgress, setModelDownloadLabel]);
 }
