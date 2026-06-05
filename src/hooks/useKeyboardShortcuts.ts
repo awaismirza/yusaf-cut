@@ -12,6 +12,7 @@
 import { useEffect } from "react";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useProjectStore, useTemporalProjectStore } from "@/stores/projectStore";
+import { useUIStore } from "@/stores/uiStore";
 import { wordIdToOutputTime, wordIdsInOutputRange } from "@/lib/edl";
 
 function isMac() {
@@ -34,6 +35,23 @@ export function useKeyboardShortcuts() {
         (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
 
       const mod = isMac() ? e.metaKey : e.ctrlKey;
+
+      // While a heavy edit is processing, swallow transport + delete shortcuts so
+      // playback can't start and edits can't stack against a half-built timeline.
+      if (useUIStore.getState().isProcessingEdit) {
+        const k = e.key.toLowerCase();
+        if (
+          e.key === " " ||
+          k === "j" ||
+          k === "k" ||
+          k === "l" ||
+          e.key === "Backspace" ||
+          e.key === "Delete"
+        ) {
+          e.preventDefault();
+          return;
+        }
+      }
 
       // Space: play/pause — only when not typing in a text field
       if (e.key === " " && !inTextField) {
@@ -142,35 +160,52 @@ export function useKeyboardShortcuts() {
       if (mod && (e.key === "Backspace" || e.key === "Delete")) {
         const player = usePlayerStore.getState();
         const projectStore = useProjectStore.getState();
+        const ui = useUIStore.getState();
         const hasRange = player.timelineMarkIn !== null && player.timelineMarkOut !== null;
         const selectedIds = [...player.selectedWordIds];
         if (!hasRange && selectedIds.length === 0) return;
         e.preventDefault();
         if (hasRange) {
-          const seekTo = Math.min(player.timelineMarkIn!, player.timelineMarkOut!);
-          projectStore.deleteOutputRange(player.timelineMarkIn!, player.timelineMarkOut!);
-          player.clearTimelineRange();
-          player.setSelectedWordIds([]);
-          player.setCurrentTime(seekTo);
-          window.dispatchEvent(
-            new CustomEvent("yusafcut:seek-output", { detail: { time: seekTo, play: false } }),
-          );
+          const markIn = player.timelineMarkIn!;
+          const markOut = player.timelineMarkOut!;
+          const seekTo = Math.min(markIn, markOut);
+          void ui
+            .withProcessingEdit("Updating timeline…", () => {
+              projectStore.deleteOutputRange(markIn, markOut);
+            })
+            .then(() => {
+              player.clearTimelineRange();
+              player.setSelectedWordIds([]);
+              player.setCurrentTime(seekTo);
+              window.dispatchEvent(
+                new CustomEvent("yusafcut:seek-output", { detail: { time: seekTo, play: false } }),
+              );
+            });
           return;
         }
-        projectStore.deleteWords(selectedIds);
-        player.setSelectedWordIds([]);
+        void ui
+          .withProcessingEdit("Updating timeline…", () => {
+            projectStore.deleteWords(selectedIds);
+          })
+          .then(() => player.setSelectedWordIds([]));
         return;
       }
 
       if (!mod && (e.key === "Backspace" || e.key === "Delete") && !inTextField) {
         const player = usePlayerStore.getState();
         const projectStore = useProjectStore.getState();
+        const ui = useUIStore.getState();
         const selectedIds = [...player.selectedWordIds];
         if (selectedIds.length === 0) return;
         e.preventDefault();
-        projectStore.deleteWords(selectedIds);
-        player.setSelectedWordIds([]);
-        window.getSelection()?.removeAllRanges();
+        void ui
+          .withProcessingEdit("Updating timeline…", () => {
+            projectStore.deleteWords(selectedIds);
+          })
+          .then(() => {
+            player.setSelectedWordIds([]);
+            window.getSelection()?.removeAllRanges();
+          });
         return;
       }
 

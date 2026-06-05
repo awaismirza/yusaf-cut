@@ -20,6 +20,7 @@ import {
 } from "@/lib/edl";
 import { useProjectStore } from "@/stores/projectStore";
 import { usePlayerStore } from "@/stores/playerStore";
+import { useUIStore } from "@/stores/uiStore";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
@@ -78,6 +79,9 @@ export function VideoPreview() {
   const setPlaying = usePlayerStore((s) => s.setPlaying);
   const toggleMuted = usePlayerStore((s) => s.toggleMuted);
   const setRate = usePlayerStore((s) => s.setRate);
+  // Playback is locked while a heavy transcript/EDL edit is being applied so the
+  // user can't start playback against a half-rebuilt timeline.
+  const isProcessingEdit = useUIStore((s) => s.isProcessingEdit);
 
   const [scrubbing, setScrubbing] = useState(false);
   const [scrubValue, setScrubValue] = useState(0);
@@ -406,7 +410,10 @@ export function VideoPreview() {
   );
 
   useEffect(() => {
+    // Block starting playback while a heavy edit is processing (pausing is fine).
+    const editLocked = () => useUIStore.getState().isProcessingEdit;
     function onPlay() {
+      if (editLocked()) return;
       playVideo();
     }
     function onPause() {
@@ -414,12 +421,13 @@ export function VideoPreview() {
     }
     function onToggle() {
       if (usePlayerStore.getState().playing) pauseVideo();
-      else playVideo();
+      else if (!editLocked()) playVideo();
     }
     function onSeekOutput(e: Event) {
       const ce = e as CustomEvent<{ time: number; play?: boolean }>;
-      seekToOutputTime(ce.detail.time, { play: ce.detail.play });
-      if (ce.detail.play && activeMediaId === outputTimeToSource(project, ce.detail.time)?.segment.mediaId) {
+      const wantsPlay = ce.detail.play && !editLocked();
+      seekToOutputTime(ce.detail.time, { play: wantsPlay });
+      if (wantsPlay && activeMediaId === outputTimeToSource(project, ce.detail.time)?.segment.mediaId) {
         playVideo();
       }
     }
@@ -435,6 +443,14 @@ export function VideoPreview() {
       window.removeEventListener("yusafcut:seek-output", onSeekOutput);
     };
   }, [activeMediaId, pauseVideo, playVideo, project, seekToOutputTime]);
+
+  // If a heavy edit starts while playing, pause immediately so playback can't
+  // run against a timeline that is being rebuilt.
+  useEffect(() => {
+    if (isProcessingEdit && usePlayerStore.getState().playing) {
+      pauseVideo();
+    }
+  }, [isProcessingEdit, pauseVideo]);
 
   const seekToSelectedWord = useCallback(() => {
     const el = videoRef.current;
@@ -485,6 +501,7 @@ export function VideoPreview() {
       pauseVideo();
       return;
     }
+    if (isProcessingEdit) return; // locked while a heavy edit is processing
     seekToSelectedWord();
     playVideo();
   };
@@ -592,6 +609,7 @@ export function VideoPreview() {
             variant="ghost"
             className="h-9 w-9 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 hover:scale-105 transition-transform"
             onClick={handlePlayPause}
+            disabled={isProcessingEdit && !playing}
             title={playing ? "Pause (Space)" : "Play (Space)"}
           >
             {playing ? (
