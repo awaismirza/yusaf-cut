@@ -16,10 +16,12 @@ This document explains how the code maps to the spec at the repo root.
 │             ▼                              ▼                     │
 │   ┌──────────────────────────────────────────────────────────┐   │
 │   │  Zustand stores                                          │   │
-│   │    projectStore  — EDL + project metadata                │   │
-│   │    playerStore   — playback position, markers, zoom      │   │
-│   │    uiStore       — modal state, loaders, toasts          │   │
-│   │    jobsStore     — background job mirror from Rust       │   │
+│   │    projectStore    — EDL + project metadata              │   │
+│   │    playerStore    — playback position, markers, zoom     │   │
+│   │    uiStore        — modal state, loaders, toasts         │   │
+│   │    jobsStore      — background job mirror from Rust      │   │
+│   │    editorUiStore  — active panel, aspect ratio,          │   │
+│   │                     preview zoom, auto-fit, find state   │   │
 │   │  + zundo (50-step undo on projectStore)                  │   │
 │   └────────────────┬─────────────────────────────────────────┘   │
 └────────────────────┼─────────────────────────────────────────────┘
@@ -122,17 +124,27 @@ milliseconds, which satisfies the ~50 ms accuracy target in the spec.
 
 Creating a second `<video>` node when the layout switches from the landing
 screen to the editing view would unmount and remount the element, dropping
-the loaded source and decoded buffers. The `App` component always renders the
-same `<aside>` wrapping the single `VideoPreview` instance and only toggles
+the loaded source and decoded buffers. The `EditorLayout` component always renders the
+same wrapper around the single `VideoPreview` instance and only toggles
 CSS classes to move it between the landing and editing layouts.
 
-## Toolbar responsive overflow
+## UI layout
 
-The Toolbar uses a `ResizeObserver` on a sentinel element at the right edge of
-the left button group. When the toolbar width drops below 860 px the `compact`
-state flips to `true`, and each button group renders as a "More ▾" dropdown
-(Radix `DropdownMenu`) instead of a flat row of buttons. This keeps all actions
-reachable at any window size without hiding any functionality.
+`EditorLayout` is the root shell component (v4.4.0). It renders:
+
+- **TopBar** (40 px) — project name, dirty indicator, Save, Undo, Redo
+- **TranscriptEditor** (left, resizable) — shown only when a transcript exists
+- **PreviewWorkspace** (centre, flex-1) — wraps the single `<video>` instance
+- **RightEditorSidebar** (right, fixed) — 52 px icon rail + 320 px inspector panel
+- **BottomTimeline** — waveform, shown only when media is loaded
+- **StatusBar** — project stats
+- **Toolbar** — renders only its modal dialogs; no visible chrome
+
+`RightEditorSidebar` composes `RightToolRail` (12 icon buttons) and `RightInspectorPanel`
+(renders the active panel component). Panel state lives in `editorUiStore`.
+
+The old two-row toolbar was removed in v4.4.0. All actions are now accessible
+through the right-sidebar panels or via keyboard shortcuts.
 
 ## Cross-platform code that isn't
 

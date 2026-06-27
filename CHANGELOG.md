@@ -5,6 +5,26 @@ All notable changes to YusafCut will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.4.0] — 2026-06-28
+
+### Added
+- Right-side editor sidebar: 52 px icon rail with 12 panels (Layout, Background, Screen, Crop, Annotate, Mask, Transcript, Captions, AI, Media, Export, Settings)
+- Right inspector panel (320 px, collapsible) driven by the active rail icon
+- `editorUiStore` — UI state for active panel, aspect ratio, preview zoom, auto-fit zoom, find-in-transcript open state
+- `EditorLayout` component — root shell with drag-resize, TopBar, RightEditorSidebar, BottomTimeline
+- `TopBar` — minimal 40 px bar with project name, dirty indicator, Save, Undo, Redo buttons
+- `PreviewWorkspace` — wraps VideoPreview with ResizeObserver auto-fit zoom tracking
+- `BottomTimeline` — wraps the waveform with a clear timeline section boundary
+
+### Changed
+- `Toolbar` component now renders only its modal dialogs; all toolbar chrome removed
+- All file/project actions (Open, Add Clip, Record, Music, New/Open/Close Project, Snapshots) moved to the Media panel
+- Export .mp4 and caption export moved to the Export panel
+- Transcribe / Re-Transcribe moved to the Transcript panel
+- Toolbox editing tools (Select, Find, Markers, Edit, Zoom) moved to the Transcript panel
+- `App.tsx` reduced to hooks, drag-drop wiring, and global overlay rendering
+- Welcome screen copy updated to reference the Media and Transcript panels
+
 ## [Unreleased]
 
 ## [4.3.0] - 2026-06-05
