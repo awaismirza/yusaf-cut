@@ -179,7 +179,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-      <Toolbar onFindClick={() => setFindOpen(true)} />
+      <Toolbar />
 
       {/*
        * IMPORTANT: keep a single VideoPreview instance across both layouts.
