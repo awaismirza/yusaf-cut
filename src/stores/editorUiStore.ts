@@ -1,18 +1,6 @@
 import { create } from "zustand";
 
-export type RightEditorPanel =
-  | "layout"
-  | "background"
-  | "screen"
-  | "crop"
-  | "annotate"
-  | "mask"
-  | "transcript"
-  | "captions"
-  | "ai"
-  | "media"
-  | "export"
-  | "settings";
+export type RightEditorPanel = "main";
 
 interface EditorUiState {
   activeRightPanel: RightEditorPanel;
@@ -30,7 +18,7 @@ interface EditorUiState {
 }
 
 export const useEditorUiStore = create<EditorUiState>((set, get) => ({
-  activeRightPanel: "transcript",
+  activeRightPanel: "main",
   inspectorOpen: true,
   aspectRatio: "16:9",
   previewZoom: 1,

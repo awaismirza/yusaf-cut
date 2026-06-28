@@ -4,7 +4,7 @@ import { useEditorUiStore } from "@/stores/editorUiStore";
 describe("editorUiStore", () => {
   beforeEach(() => {
     useEditorUiStore.setState({
-      activeRightPanel: "transcript",
+      activeRightPanel: "main",
       inspectorOpen: true,
       findOpen: false,
       aspectRatio: "16:9",
@@ -13,27 +13,20 @@ describe("editorUiStore", () => {
     });
   });
 
-  it("starts with transcript panel active and inspector open", () => {
+  it("starts with main panel active and inspector open", () => {
     const { activeRightPanel, inspectorOpen } = useEditorUiStore.getState();
-    expect(activeRightPanel).toBe("transcript");
-    expect(inspectorOpen).toBe(true);
-  });
-
-  it("setActiveRightPanel switches to a new panel and opens inspector", () => {
-    useEditorUiStore.getState().setActiveRightPanel("export");
-    const { activeRightPanel, inspectorOpen } = useEditorUiStore.getState();
-    expect(activeRightPanel).toBe("export");
+    expect(activeRightPanel).toBe("main");
     expect(inspectorOpen).toBe(true);
   });
 
   it("setActiveRightPanel on the already-active panel toggles inspector closed", () => {
-    useEditorUiStore.getState().setActiveRightPanel("transcript"); // already active
+    useEditorUiStore.getState().setActiveRightPanel("main"); // already active
     expect(useEditorUiStore.getState().inspectorOpen).toBe(false);
   });
 
   it("setActiveRightPanel on active-but-closed panel reopens inspector", () => {
     useEditorUiStore.setState({ inspectorOpen: false });
-    useEditorUiStore.getState().setActiveRightPanel("transcript"); // active + closed
+    useEditorUiStore.getState().setActiveRightPanel("main"); // active + closed
     expect(useEditorUiStore.getState().inspectorOpen).toBe(true);
   });
 
