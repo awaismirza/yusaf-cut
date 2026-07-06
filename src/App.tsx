@@ -1,7 +1,10 @@
 import { useEffect } from "react";
 import { EditorLayout } from "@/components/editor/EditorLayout";
 import { ProcessingOverlay } from "@/components/ProcessingOverlay";
+import { RecorderDialog } from "@/components/Recorder/RecorderDialog";
+import { RecordingHUD } from "@/components/Recorder/RecordingHUD";
 import { Toaster } from "@/components/ui/toaster";
+import { initRecorder } from "@/stores/recordingStore";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useTranscribeProgress } from "@/hooks/useTranscribeProgress";
@@ -31,6 +34,19 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = "dark";
+  }, []);
+
+  useEffect(() => {
+    let dispose: (() => void) | null = null;
+    let cancelled = false;
+    void initRecorder().then((d) => {
+      if (cancelled) d();
+      else dispose = d;
+    });
+    return () => {
+      cancelled = true;
+      dispose?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -96,8 +112,7 @@ export default function App() {
     void getCurrentWebview()
       .onDragDropEvent((event) => {
         if (event.payload.type !== "drop") return;
-        const mediaPath =
-          event.payload.paths.find(isSupportedMediaPath) ?? event.payload.paths[0];
+        const mediaPath = event.payload.paths.find(isSupportedMediaPath) ?? event.payload.paths[0];
         if (mediaPath) void addDroppedClip(mediaPath);
       })
       .then((dispose) => {
@@ -117,6 +132,8 @@ export default function App() {
   return (
     <>
       <EditorLayout />
+      <RecorderDialog />
+      <RecordingHUD />
       <ProcessingOverlay />
       <Toaster />
     </>

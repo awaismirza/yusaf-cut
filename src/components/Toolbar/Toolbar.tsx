@@ -21,11 +21,8 @@ import {
   loadProject,
   onModelDownloadProgress,
   saveProject,
-  startNativeRecording,
-  stopNativeRecording,
   transcribe,
   type ModelInfo,
-  type RecordingMode,
   type WhisperModel,
 } from "@/lib/ipc";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -35,12 +32,8 @@ import {
   Download,
   FolderOpen,
   MicVocal,
-  MonitorUp,
-  Radio,
   Scissors,
   Settings2,
-  Square,
-  Video,
 } from "lucide-react";
 import {
   addMediaWithTranscript as buildProjectWithMedia,
@@ -133,12 +126,6 @@ function applyTranscriptToMedia(
   };
 }
 
-function recordingLabel(mode: RecordingMode) {
-  if (mode === "voiceover") return "Voice over";
-  if (mode === "screen") return "Screen recording";
-  return "Camera recording";
-}
-
 export function Toolbar() {
   const project = useProjectStore((s) => s.project);
   const filePath = useProjectStore((s) => s.filePath);
@@ -176,12 +163,8 @@ export function Toolbar() {
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadLabel, setDownloadLabel] = useState("Downloading…");
   const [deletingModel, setDeletingModel] = useState<string | null>(null);
-  const [recordDialogOpen, setRecordDialogOpen] = useState(false);
   const [musicDialogOpen, setMusicDialogOpen] = useState(false);
   const [snapshotsDialogOpen, setSnapshotsDialogOpen] = useState(false);
-  const [recordingMode, setRecordingMode] = useState<RecordingMode>("voiceover");
-  const [recording, setRecording] = useState(false);
-  const [recordingStatus, setRecordingStatus] = useState("Ready to record locally");
   const unlistenDownloadRef = useRef<(() => void) | null>(null);
   /** Set to true before opening the model dialog when the user clicks Re-Transcribe. */
   const forceRetranscribeRef = useRef(false);
@@ -298,129 +281,6 @@ export function Toolbar() {
     if (typeof path !== "string") return;
     await openProjectAtPath(path);
   }, [openProjectAtPath]);
-
-  async function ensureSelectedModelInstalled() {
-    const info = await listModels();
-    setInstalledModels(info);
-    const installed = info.find((m) => m.name === selectedModel)?.installed ?? false;
-    if (installed) return;
-
-    const modelLabel = MODELS.find((m) => m.name === selectedModel)?.label ?? selectedModel;
-    pushToast({
-      title: `Downloading ${modelLabel}…`,
-      description: "Needed once before local transcription can run.",
-    });
-    await downloadModel("whisper-cpp", selectedModel);
-    setInstalledModels((prev) =>
-      prev.map((m) => (m.name === selectedModel ? { ...m, installed: true } : m)),
-    );
-  }
-
-  async function importAndTranscribeRecording(path: string, label: string) {
-    setMediaLoading(true);
-    try {
-      const media = await importMedia(path);
-      const name = mediaNameFromPath(media.path, label);
-      const projectWithMedia = buildProjectWithMedia(newProject(name), media, []);
-      resetPlayer();
-      replaceProjectBaseline(projectWithMedia, { dirty: true, filePath: null });
-      pushToast({ title: `${label} saved`, description: media.path });
-
-      await ensureSelectedModelInstalled();
-      const result = await transcribe({
-        mediaId: media.id,
-        mediaPath: media.path,
-        engine: "whisper-cpp",
-        modelName: selectedModel,
-        mediaDuration: media.duration,
-        language: transcribeLanguage === "auto" ? undefined : transcribeLanguage,
-        translate: transcribeTranslate,
-        diarize: transcribeDiarize,
-      });
-      let recordedWords = result.words;
-      try {
-        const silences = await detectPauses({
-          mediaPath: media.path,
-          noiseThreshold: -35,
-          minDuration: 0.5,
-        });
-        recordedWords = snapWordsToSilences(recordedWords, silences);
-      } catch {
-        /* non-fatal */
-      }
-      writeTranscriptCache(media, recordedWords);
-      replaceProjectBaseline(
-        {
-          ...projectWithMedia,
-          segments: [
-            {
-              id: crypto.randomUUID(),
-              mediaId: media.id,
-              words: recordedWords,
-              sourceIn: 0,
-              sourceOut: media.duration,
-            },
-          ],
-          updatedAt: new Date().toISOString(),
-        },
-        { dirty: true, filePath: null },
-      );
-      pushToast({ title: "Recording transcribed", description: `${recordedWords.length} words` });
-
-      // Auto-surface pauses for the recording too (best-effort, non-blocking).
-      if (result.words.length > 0) {
-        await autoDetectPauses(media.path);
-      }
-    } catch (err) {
-      pushToast({
-        title: "Recording import/transcription failed",
-        description: String(err),
-        variant: "destructive",
-      });
-    } finally {
-      setMediaLoading(false);
-    }
-  }
-
-  async function startRecording(mode: RecordingMode) {
-    setRecordingMode(mode);
-    setRecordingStatus("Starting native macOS recorder…");
-
-    try {
-      await startNativeRecording(mode);
-      setRecording(true);
-      setRecordingStatus(`${recordingLabel(mode)} in progress`);
-    } catch (err) {
-      setRecording(false);
-      setRecordingStatus("Ready to record locally");
-      pushToast({
-        title: "Recording failed to start",
-        description: String(err),
-        variant: "destructive",
-      });
-    }
-  }
-
-  async function stopRecording() {
-    setRecordingStatus("Stopping recording…");
-    try {
-      const label = recordingLabel(recordingMode);
-      const path = await stopNativeRecording();
-      setRecording(false);
-      setRecordingStatus("Transcribing recording…");
-      await importAndTranscribeRecording(path, label);
-      setRecordDialogOpen(false);
-    } catch (err) {
-      pushToast({
-        title: "Recording failed to stop",
-        description: String(err),
-        variant: "destructive",
-      });
-    } finally {
-      setRecording(false);
-      setRecordingStatus("Ready to record locally");
-    }
-  }
 
   const refreshModelList = useCallback(async () => {
     try {
@@ -813,7 +673,6 @@ export function Toolbar() {
     };
     const onOpen = () => void handleOpen();
     const onAddClip = () => void handleAddClip();
-    const onRecord = () => setRecordDialogOpen(true);
     const onMusic = () => setMusicDialogOpen(true);
     const onSnapshots = () => setSnapshotsDialogOpen(true);
     const onExportCaptions = () => void handleExportCaptions();
@@ -830,7 +689,6 @@ export function Toolbar() {
     window.addEventListener("yusafcut:transcribe", onTranscribe);
     window.addEventListener("yusafcut:open", onOpen);
     window.addEventListener("yusafcut:add-clip", onAddClip);
-    window.addEventListener("yusafcut:record", onRecord);
     window.addEventListener("yusafcut:music", onMusic);
     window.addEventListener("yusafcut:snapshots", onSnapshots);
     window.addEventListener("yusafcut:export-captions", onExportCaptions);
@@ -845,7 +703,6 @@ export function Toolbar() {
       window.removeEventListener("yusafcut:transcribe", onTranscribe);
       window.removeEventListener("yusafcut:open", onOpen);
       window.removeEventListener("yusafcut:add-clip", onAddClip);
-      window.removeEventListener("yusafcut:record", onRecord);
       window.removeEventListener("yusafcut:music", onMusic);
       window.removeEventListener("yusafcut:snapshots", onSnapshots);
       window.removeEventListener("yusafcut:export-captions", onExportCaptions);
@@ -871,83 +728,6 @@ export function Toolbar() {
 
   return (
     <>
-      <Dialog
-        open={recordDialogOpen}
-        onOpenChange={(open) => {
-          if (!recording) setRecordDialogOpen(open);
-        }}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Radio className="h-4 w-4 text-primary" />
-              Record locally
-            </DialogTitle>
-            <DialogDescription>
-              Capture voice, screen, or camera media on this Mac. YusafCut saves the clip locally,
-              imports it, and transcribes it with Whisper.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid gap-3">
-            <div className="grid grid-cols-3 gap-2">
-              <Button
-                variant={recordingMode === "voiceover" ? "default" : "outline"}
-                className="h-auto flex-col gap-2 py-4"
-                disabled={recording}
-                onClick={() => setRecordingMode("voiceover")}
-              >
-                <MicVocal className="h-5 w-5" />
-                Voice over
-              </Button>
-              <Button
-                variant={recordingMode === "screen" ? "default" : "outline"}
-                className="h-auto flex-col gap-2 py-4"
-                disabled={recording}
-                onClick={() => setRecordingMode("screen")}
-              >
-                <MonitorUp className="h-5 w-5" />
-                Screen
-              </Button>
-              <Button
-                variant={recordingMode === "camera" ? "default" : "outline"}
-                className="h-auto flex-col gap-2 py-4"
-                disabled={recording}
-                onClick={() => setRecordingMode("camera")}
-              >
-                <Video className="h-5 w-5" />
-                Camera
-              </Button>
-            </div>
-
-            <div className="rounded-md border border-border bg-secondary/45 px-3 py-2 text-sm text-muted-foreground">
-              {recordingStatus}
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setRecordDialogOpen(false)}
-              disabled={recording}
-            >
-              Cancel
-            </Button>
-            {recording ? (
-              <Button variant="destructive" className="gap-2" onClick={() => void stopRecording()}>
-                <Square className="h-4 w-4" />
-                Stop recording
-              </Button>
-            ) : (
-              <Button className="gap-2" onClick={() => void startRecording(recordingMode)}>
-                <Radio className="h-4 w-4" />
-                Start {recordingLabel(recordingMode)}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={modelDialogOpen} onOpenChange={setModelDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>

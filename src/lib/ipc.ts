@@ -20,14 +20,88 @@ export function importMedia(path: string): Promise<SourceMedia> {
   return invoke<SourceMedia>("import_media", { path });
 }
 
-export type RecordingMode = "voiceover" | "screen" | "camera";
+// ---------------------------------------------------------------------------
+// Recorder
+// ---------------------------------------------------------------------------
 
-export function startNativeRecording(mode: RecordingMode): Promise<string> {
-  return invoke<string>("start_native_recording", { mode });
+export type RecordMode = "screen" | "screen-camera" | "camera" | "voiceover";
+export type PipCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+export type PipSize = "small" | "medium" | "large";
+
+export interface VideoDevice {
+  index: number;
+  name: string;
+  isScreen: boolean;
 }
 
-export function stopNativeRecording(): Promise<string> {
-  return invoke<string>("stop_native_recording");
+export interface AudioDevice {
+  index: number;
+  name: string;
+}
+
+export interface RecordingDevices {
+  video: VideoDevice[];
+  audio: AudioDevice[];
+}
+
+export interface RecordOptions {
+  mode: RecordMode;
+  screenIndex?: number;
+  cameraIndex?: number;
+  /** Omit to record without a microphone. */
+  audioIndex?: number;
+  fps?: number;
+  pipCorner?: PipCorner;
+  pipSize?: PipSize;
+}
+
+export type RecordSessionState = "recording" | "paused" | "finalizing" | "idle";
+
+export interface RecordStatePayload {
+  state: RecordSessionState;
+  elapsedSec: number;
+  mode: RecordMode;
+}
+
+export interface RecordingResult {
+  path: string;
+  durationSec: number;
+  mode: RecordMode;
+}
+
+/** Enumerate avfoundation screens, cameras, and microphones. */
+export function listRecordingDevices(): Promise<RecordingDevices> {
+  return invoke<RecordingDevices>("list_recording_devices");
+}
+
+export function startRecording(opts: RecordOptions): Promise<void> {
+  return invoke<void>("start_recording", { opts });
+}
+
+export function pauseRecording(): Promise<void> {
+  return invoke<void>("pause_recording");
+}
+
+export function resumeRecording(): Promise<void> {
+  return invoke<void>("resume_recording");
+}
+
+export function stopRecording(): Promise<RecordingResult> {
+  return invoke<RecordingResult>("stop_recording");
+}
+
+export function cancelRecording(): Promise<void> {
+  return invoke<void>("cancel_recording");
+}
+
+/** Subscribe to recorder lifecycle + 1 Hz elapsed-time ticks. */
+export function onRecordState(handler: (p: RecordStatePayload) => void): Promise<UnlistenFn> {
+  return listen<RecordStatePayload>("record:state", (e) => handler(e.payload));
+}
+
+/** Fires when the capture process dies unexpectedly (e.g. missing permission). */
+export function onRecordError(handler: (message: string) => void): Promise<UnlistenFn> {
+  return listen<string>("record:error", (e) => handler(e.payload));
 }
 
 // ---------------------------------------------------------------------------

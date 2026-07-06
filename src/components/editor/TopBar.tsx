@@ -23,6 +23,7 @@ import {
 import { getRecentProjects } from "@/lib/recentProjects";
 import { useEditorUiStore, type WorkspaceMode } from "@/stores/editorUiStore";
 import { useProjectStore, useTemporalProjectStore } from "@/stores/projectStore";
+import { SHORTCUT_LABELS, useRecordingStore } from "@/stores/recordingStore";
 
 function dispatch(name: string, detail?: unknown) {
   window.dispatchEvent(new CustomEvent(name, detail === undefined ? undefined : { detail }));
@@ -41,6 +42,8 @@ export function TopBar() {
   const canRedo = useTemporalProjectStore((s) => s.futureStates.length > 0);
   const workspaceMode = useEditorUiStore((s) => s.workspaceMode);
   const setWorkspaceMode = useEditorUiStore((s) => s.setWorkspaceMode);
+  const recorderPhase = useRecordingStore((s) => s.phase);
+  const openRecorder = useRecordingStore((s) => s.openDialog);
   const [recents, setRecents] = useState<string[]>([]);
 
   const displayName = filePath?.split(/[\\/]/).pop() ?? `${project.name}.scribe`;
@@ -129,6 +132,16 @@ export function TopBar() {
       </div>
 
       <div className="editor-topbar-actions">
+        <button
+          type="button"
+          className={`topbar-record-btn${recorderPhase !== "idle" ? " is-live" : ""}`}
+          onClick={openRecorder}
+          disabled={recorderPhase !== "idle"}
+          title={`Record screen, camera, or voice (${SHORTCUT_LABELS.record})`}
+        >
+          <span className="recorder-dot is-live" />
+          {recorderPhase === "idle" ? "Record" : "Recording…"}
+        </button>
         <Button
           size="sm"
           variant="ghost"
