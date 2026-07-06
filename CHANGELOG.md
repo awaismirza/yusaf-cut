@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.6.1] — 2026-07-06
+
+### Changed
+- Release packaging for the 4.6 line (DMG build); no functional changes over 4.6.0.
+
 ## [4.6.0] — 2026-07-06
 
 ### Added
