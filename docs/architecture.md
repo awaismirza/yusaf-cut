@@ -20,8 +20,8 @@ This document explains how the code maps to the spec at the repo root.
 │   │    playerStore    — playback position, markers, zoom     │   │
 │   │    uiStore        — modal state, loaders, toasts         │   │
 │   │    jobsStore      — background job mirror from Rust      │   │
-│   │    editorUiStore  — active panel, aspect ratio,          │   │
-│   │                     preview zoom, auto-fit, find state   │   │
+│   │    editorUiStore  — workspace mode, active panel,        │   │
+│   │                     aspect ratio, zoom, find state       │   │
 │   │  + zundo (50-step undo on projectStore)                  │   │
 │   └────────────────┬─────────────────────────────────────────┘   │
 └────────────────────┼─────────────────────────────────────────────┘
@@ -140,21 +140,29 @@ CSS classes to move it between the landing and editing layouts.
 
 ## UI layout
 
-`EditorLayout` is the root shell component (v4.4.0). It renders:
+`EditorLayout` is the root shell component (v4.6.0). It renders:
 
-- **TopBar** (40 px) — project name, dirty indicator, Save, Undo, Redo
-- **TranscriptEditor** (left, resizable) — shown only when a transcript exists
-- **PreviewWorkspace** (centre, flex-1) — wraps the single `<video>` instance
-- **RightEditorSidebar** (right, fixed) — 52 px icon rail + 320 px inspector panel
+- **TopBar** (40 px) — Project menu (New/Open project, Open video, Add clip,
+  Recent projects, Snapshots, Close), project name, dirty indicator,
+  `Transcribe | Edit` mode toggle, Undo, Redo, Save
+- **EditorSidebar** (left, fixed) — 52 px `ToolRail` + 320 px `InspectorPanel`
+- **TranscriptEditor** (centre, resizable) — shown only when a transcript exists;
+  read-only while in Transcribe mode
+- **PreviewWorkspace** (right, flex-1) — wraps the single `<video>` instance
 - **BottomTimeline** — waveform, shown only when media is loaded
 - **StatusBar** — project stats
 - **Toolbar** — renders only its modal dialogs; no visible chrome
 
-`RightEditorSidebar` composes `RightToolRail` (12 icon buttons) and `RightInspectorPanel`
-(renders the active panel component). Panel state lives in `editorUiStore`.
+Panels are declared in `components/editor/sidebar/registry.tsx` and filtered by
+`editorUiStore.workspaceMode`: Transcribe mode shows Media and Transcribe;
+Edit mode shows Edit Tools, Music, and Export. `EditorSidebar` composes
+`ToolRail` (one icon per registered panel) and `InspectorPanel` (renders the
+active panel component). Panel and mode state live in `editorUiStore`.
+Importing media with no transcript auto-switches to Transcribe mode.
 
-The old two-row toolbar was removed in v4.4.0. All actions are now accessible
-through the right-sidebar panels or via keyboard shortcuts.
+The old two-row toolbar was removed in v4.4.0; the v4.4.0 right sidebar moved
+to the left in v4.6.0. All actions are accessible through the sidebar panels,
+the TopBar Project menu, or keyboard shortcuts.
 
 ## Cross-platform code that isn't
 
