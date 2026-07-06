@@ -50,6 +50,7 @@ import {
   type Word,
 } from "@/lib/edl";
 import { buildSrt, buildVtt } from "@/lib/captions";
+import { addRecentProject } from "@/lib/recentProjects";
 import { snapWordsToSilences } from "@/lib/timestampSnap";
 import { usePlayerStore } from "@/stores/playerStore";
 import { MusicTracksDialog } from "@/components/Toolbox/MusicTracksDialog";
@@ -266,29 +267,37 @@ export function Toolbar() {
     resetPlayer();
   }, [resetPlayer]);
 
+  const openProjectAtPath = useCallback(
+    async (path: string) => {
+      setMediaLoading(true);
+      try {
+        const loaded = await loadProject(path);
+        cacheProjectTranscripts(loaded);
+        replaceProjectBaseline(loaded, { dirty: false, filePath: path });
+        resetPlayer();
+        addRecentProject(path);
+        pushToast({ title: "Project opened", description: path });
+      } catch (err) {
+        pushToast({
+          title: "Failed to open project",
+          description: String(err),
+          variant: "destructive",
+        });
+      } finally {
+        setMediaLoading(false);
+      }
+    },
+    [setMediaLoading, pushToast, resetPlayer],
+  );
+
   const handleOpenProject = useCallback(async () => {
     const path = await openDialog({
       multiple: false,
       filters: [{ name: "YusafCut project", extensions: ["scribe"] }],
     });
     if (typeof path !== "string") return;
-    setMediaLoading(true);
-    try {
-      const loaded = await loadProject(path);
-      cacheProjectTranscripts(loaded);
-      replaceProjectBaseline(loaded, { dirty: false, filePath: path });
-      resetPlayer();
-      pushToast({ title: "Project opened", description: path });
-    } catch (err) {
-      pushToast({
-        title: "Failed to open project",
-        description: String(err),
-        variant: "destructive",
-      });
-    } finally {
-      setMediaLoading(false);
-    }
-  }, [setMediaLoading, pushToast, resetPlayer]);
+    await openProjectAtPath(path);
+  }, [openProjectAtPath]);
 
   async function ensureSelectedModelInstalled() {
     const info = await listModels();
@@ -682,6 +691,7 @@ export function Toolbar() {
     try {
       await saveProject(project, path);
       markSaved(path);
+      addRecentProject(path);
       pushToast({ title: "Saved" });
     } catch (err) {
       pushToast({
@@ -809,6 +819,10 @@ export function Toolbar() {
     const onExportCaptions = () => void handleExportCaptions();
     const onNewProject = () => handleNewProject();
     const onOpenProject = () => void handleOpenProject();
+    const onOpenProjectPath = (e: Event) => {
+      const path = (e as CustomEvent<{ path: string }>).detail?.path;
+      if (path) void openProjectAtPath(path);
+    };
     const onCloseProject = () => handleCloseProject();
 
     window.addEventListener("yusafcut:save", handleSave);
@@ -822,6 +836,7 @@ export function Toolbar() {
     window.addEventListener("yusafcut:export-captions", onExportCaptions);
     window.addEventListener("yusafcut:new-project", onNewProject);
     window.addEventListener("yusafcut:open-project", onOpenProject);
+    window.addEventListener("yusafcut:open-project-path", onOpenProjectPath);
     window.addEventListener("yusafcut:close-project", onCloseProject);
 
     return () => {
@@ -836,6 +851,7 @@ export function Toolbar() {
       window.removeEventListener("yusafcut:export-captions", onExportCaptions);
       window.removeEventListener("yusafcut:new-project", onNewProject);
       window.removeEventListener("yusafcut:open-project", onOpenProject);
+      window.removeEventListener("yusafcut:open-project-path", onOpenProjectPath);
       window.removeEventListener("yusafcut:close-project", onCloseProject);
     };
   }, [
@@ -846,6 +862,7 @@ export function Toolbar() {
     handleExportCaptions,
     handleNewProject,
     handleOpenProject,
+    openProjectAtPath,
     handleCloseProject,
     handleOpen,
     handleAddClip,
