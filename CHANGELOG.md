@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.7.0] — 2026-07-07
+
+### Added
+- **Built-in recorder** — record the screen, screen + camera (picture-in-picture bubble with corner/size options), camera, or a voice-over without leaving the app. Capture runs through the bundled ffmpeg sidecar (avfoundation + VideoToolbox); everything stays local.
+- **Global recording shortcuts** that work even while other apps have focus: `⌥⌘R` start/stop, `⌥⌘P` pause/resume, `⌥⌘E` re-record the current take (session shortcuts are registered only while recording).
+- **Pause/resume via lossless segments** — each pause boundary starts a new ffmpeg segment; stop concatenates them with the concat demuxer (`-c copy`, no re-encode).
+- **Auto-append to the end of the video** — a finished recording is imported, transcribed with the best installed Whisper model, snapped to silence edges, and appended as a new segment at the end of the EDL. If no model is installed the clip is appended untranscribed.
+- **Recording HUD** — floating pill with pulsing live dot, elapsed timecode, and pause / re-record / stop / discard controls; 3-2-1 countdown before capture; the main window auto-minimises during screen capture and restores afterwards.
+- **Record button** in the top bar and device pickers (display / camera / microphone) in the new recorder dialog.
+- Timeline: **zoom controls** (− / value / + / fit) and a live playhead/duration timecode badge in the header; **hover scrub hairline with a timecode tooltip** on the rail.
+
+### Changed
+- **"Studio Graphite" redesign** — new token palette (cool graphite surfaces with a violet undertone, Halo-violet accent replacing teal, dedicated recording red), chrome surfaces now derive from a `--panel-deep/--panel/--panel-raised` ladder, gradient timeline bars with rounded caps, brighter playhead, violet-tinted workspace-mode toggle.
+- The old `start_native_recording` / `stop_native_recording` commands and the Toolbar record dialog were replaced by the new recorder module (`commands/record.rs`, `recorder.rs`, `stores/recordingStore.ts`, `components/Recorder/`).
+
 ## [4.6.0] — 2026-07-06
 
 ### Added

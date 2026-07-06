@@ -33,8 +33,8 @@ If YusafCut helps you, consider supporting the project:
 
 ## Status
 
-YusafCut 3.7.0 is production-ready for local-first transcript editing, timeline
-preview, and MP4 export on Apple Silicon Macs. The project is pre-1.0 from an
+YusafCut 4.7.0 is production-ready for local-first transcript editing, screen
+and camera recording, timeline preview, and MP4 export on Apple Silicon Macs. The project is pre-1.0 from an
 open-source governance and release-process perspective, so expect fast
 iteration and some rough edges around packaging.
 
@@ -57,6 +57,9 @@ iteration and some rough edges around packaging.
 | DTW word-timestamp refinement via `whisper.cpp --dtw` | Complete |
 | Cut-point pre-roll padding | Complete |
 | Timeline zoom and in/out markers | Complete |
+| Built-in screen / camera / voice recorder with picture-in-picture | Complete |
+| Global recording shortcuts (⌥⌘R / ⌥⌘P / ⌥⌘E) with pause + re-record | Complete |
+| Recordings auto-transcribed and appended to the end of the video | Complete |
 | Speaker diarisation | Experimental |
 | Auto-update and notarisation | Planned |
 
