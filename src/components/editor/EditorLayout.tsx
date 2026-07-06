@@ -8,6 +8,7 @@ import { StatusBar } from "@/components/StatusBar/StatusBar";
 import { Toolbar } from "@/components/Toolbar/Toolbar";
 import { useProjectStore } from "@/stores/projectStore";
 import { useEditorUiStore } from "@/stores/editorUiStore";
+import { useUIStore } from "@/stores/uiStore";
 
 const MIN_VIDEO_WIDTH = 360;
 const MAX_VIDEO_WIDTH = 1100;
@@ -22,6 +23,27 @@ export function EditorLayout() {
 
   const findOpen = useEditorUiStore((s) => s.findOpen);
   const setFindOpen = useEditorUiStore((s) => s.setFindOpen);
+  const workspaceMode = useEditorUiStore((s) => s.workspaceMode);
+  const setWorkspaceMode = useEditorUiStore((s) => s.setWorkspaceMode);
+
+  // Importing media with no transcript lands the user in Transcribe mode —
+  // the only useful next step is running transcription.
+  useEffect(() => {
+    if (hasMedia && !hasTranscript) setWorkspaceMode("transcribe");
+  }, [hasMedia, hasTranscript, setWorkspaceMode]);
+
+  // One-shot nudge when a transcript first appears while in Transcribe mode.
+  // The Transcribe panel's "Switch to Edit mode" button is the one-click path.
+  const prevHasTranscript = useRef(hasTranscript);
+  useEffect(() => {
+    if (!prevHasTranscript.current && hasTranscript && workspaceMode === "transcribe") {
+      useUIStore.getState().pushToast({
+        title: "Transcription ready",
+        description: "Switch to Edit mode (top bar) to start cutting by text.",
+      });
+    }
+    prevHasTranscript.current = hasTranscript;
+  }, [hasTranscript, workspaceMode]);
 
   const [videoWidth, setVideoWidth] = useState<number>(() => {
     if (typeof window === "undefined") return DEFAULT_VIDEO_WIDTH;
@@ -83,6 +105,7 @@ export function EditorLayout() {
           <>
             <main className="relative flex min-w-0 flex-1 overflow-hidden border-r border-border">
               <TranscriptEditor
+                readOnly={workspaceMode === "transcribe"}
                 findOpen={findOpen}
                 onFindOpen={() => setFindOpen(true)}
                 onFindClose={() => setFindOpen(false)}
