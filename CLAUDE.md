@@ -137,6 +137,9 @@ Key flags for timestamp accuracy:
 - `--word-thold 0.01` — keep all tokens
 - `--max-len 0` — unbounded segment length (prevents timestamp compression drift)
 - `--best-of 5 --beam-size 5` — beam search for quality
+- `--dtw <preset>` — DTW timestamp refinement; preset names are **dot-form** (`large.v3`, `large.v3.turbo`), never hyphenated. The parser prefers `t_dtw` token values, falling back to offsets; a rejected preset triggers one retry without `--dtw`.
+
+After transcription, word boundaries are snapped to ffmpeg-silencedetect edges (`src/lib/timestampSnap.ts`, max 120 ms).
 
 > **WhisperKit / ANE restoration note:** WhisperKit was removed in v3.2.0 because ANE-quantized models caused video/text drift. To restore it, run:
 > `git show 4726d25:src-tauri/src/commands/transcribe.rs` (Rust)
