@@ -112,8 +112,7 @@ export default function App() {
     void getCurrentWebview()
       .onDragDropEvent((event) => {
         if (event.payload.type !== "drop") return;
-        const mediaPath =
-          event.payload.paths.find(isSupportedMediaPath) ?? event.payload.paths[0];
+        const mediaPath = event.payload.paths.find(isSupportedMediaPath) ?? event.payload.paths[0];
         if (mediaPath) void addDroppedClip(mediaPath);
       })
       .then((dispose) => {

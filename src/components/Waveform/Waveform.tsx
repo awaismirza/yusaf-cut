@@ -70,6 +70,7 @@ export function Waveform() {
   const [dragging, setDragging] = useState(false);
   const [containerWidth, setContainerWidth] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
 
   const firstMedia = Object.values(project.media)[0];
   const duration = totalDuration(project);
@@ -216,21 +217,25 @@ export function Waveform() {
     // Density-aware tick step. At higher zoom we want finer divisions.
     const visibleDuration = Math.max(visibleEndSec - visibleStartSec, 1e-3);
     const tickStep =
-      visibleDuration > 600 ? 60 :
-      visibleDuration > 240 ? 30 :
-      visibleDuration > 90 ? 10 :
-      visibleDuration > 30 ? 5 :
-      visibleDuration > 10 ? 1 :
-      visibleDuration > 3 ? 0.5 :
-      0.1;
+      visibleDuration > 600
+        ? 60
+        : visibleDuration > 240
+          ? 30
+          : visibleDuration > 90
+            ? 10
+            : visibleDuration > 30
+              ? 5
+              : visibleDuration > 10
+                ? 1
+                : visibleDuration > 3
+                  ? 0.5
+                  : 0.1;
     const nextTicks: TickSpec[] = [];
     const firstTick = Math.ceil(visibleStartSec / tickStep) * tickStep;
     for (let t = firstTick; t <= visibleEndSec + 1e-6; t += tickStep) {
       nextTicks.push({
         leftPx: t * pxPerSecond,
-        label: tickStep < 1
-          ? formatTimecode(t, { ms: true })
-          : formatTimecode(t, { ms: false }),
+        label: tickStep < 1 ? formatTimecode(t, { ms: true }) : formatTimecode(t, { ms: false }),
       });
     }
     return { bars: nextBars, ticks: nextTicks };
@@ -271,9 +276,10 @@ export function Waveform() {
   }
 
   function handleMouseMove(e: React.MouseEvent<HTMLDivElement>) {
-    if (dragStart === null) return;
     const outputTime = outputTimeFromPointer(e);
     if (outputTime === null) return;
+    setHoverTime(outputTime);
+    if (dragStart === null) return;
     if (Math.abs(outputTime - dragStart) > 0.05) setDragging(true);
     updateSelection(dragStart, outputTime);
   }
@@ -337,8 +343,7 @@ export function Waveform() {
   const visibleFraction = railWidth > 0 ? Math.min(1, containerWidth / railWidth) : 1;
   const minimapWindowLeft = railWidth > 0 ? (scrollLeft / railWidth) * MINIMAP_WIDTH_PX : 0;
   const minimapWindowWidth = visibleFraction * MINIMAP_WIDTH_PX;
-  const minimapPlayheadLeft =
-    duration > 0 ? (currentTime / duration) * MINIMAP_WIDTH_PX : 0;
+  const minimapPlayheadLeft = duration > 0 ? (currentTime / duration) * MINIMAP_WIDTH_PX : 0;
 
   return (
     <div className="timeline-panel">
@@ -377,24 +382,48 @@ export function Waveform() {
               className="timeline-minimap-window"
               style={{ left: minimapWindowLeft, width: minimapWindowWidth }}
             />
-            <div
-              className="timeline-minimap-playhead"
-              style={{ left: minimapPlayheadLeft }}
-            />
+            <div className="timeline-minimap-playhead" style={{ left: minimapPlayheadLeft }} />
           </div>
         )}
 
-        <div className="timeline-help">
-          {zoomed
-            ? `drag selects · I/O mark range · ⌘+scroll to zoom · zoom ${timelineZoom.toFixed(1)}x`
-            : `drag selects · I/O mark range · zoom ${timelineZoom.toFixed(1)}x`}
+        <div
+          className="timeline-zoom"
+          title="Drag selects · I/O mark range · ⌘+scroll zooms around the cursor"
+        >
+          <button
+            type="button"
+            aria-label="Zoom out"
+            disabled={timelineZoom <= 1.001}
+            onClick={() => setTimelineZoom(Math.max(1, timelineZoom / 1.5))}
+          >
+            −
+          </button>
+          <span className="zoom-value">{timelineZoom.toFixed(1)}×</span>
+          <button
+            type="button"
+            aria-label="Zoom in"
+            disabled={timelineZoom >= 31.999}
+            onClick={() => setTimelineZoom(Math.min(32, timelineZoom * 1.5))}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            aria-label="Fit timeline to window"
+            disabled={timelineZoom <= 1.001}
+            onClick={() => setTimelineZoom(1)}
+            title="Fit to window"
+          >
+            ⤢
+          </button>
+        </div>
+
+        <div className="timeline-timecode" title="Playhead position">
+          {formatTimecode(currentTime, { ms: false })} / {formatTimecode(duration, { ms: false })}
         </div>
       </div>
 
-      <div
-        ref={scrollRef}
-        className={zoomed ? "timeline-scroll is-zoomed" : "timeline-scroll"}
-      >
+      <div ref={scrollRef} className={zoomed ? "timeline-scroll is-zoomed" : "timeline-scroll"}>
         <div
           ref={railRef}
           className="timeline-rail"
@@ -402,6 +431,7 @@ export function Waveform() {
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
+          onMouseLeave={() => setHoverTime(null)}
         >
           <div className="timeline-ticks">
             {ticks.map((tick) => (
@@ -465,6 +495,14 @@ export function Waveform() {
               </div>
             );
           })}
+          {hoverTime !== null && !dragging && (
+            <>
+              <div className="timeline-hoverline" style={{ left: hoverTime * pxPerSecond }} />
+              <div className="timeline-hovertip" style={{ left: hoverTime * pxPerSecond }}>
+                {formatTimecode(hoverTime, { ms: false })}
+              </div>
+            </>
+          )}
           <div className="timeline-playhead" style={{ left: playheadLeftPx }}>
             <span />
           </div>
