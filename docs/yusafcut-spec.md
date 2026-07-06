@@ -66,7 +66,8 @@ yusafcut/
 │   │   ├── TranscriptEditor/
 │   │   ├── VideoPreview/
 │   │   ├── Waveform/
-│   │   ├── Toolbar/
+│   │   ├── Toolbar/        # modal dialogs only (no visible chrome)
+│   │   ├── editor/         # EditorLayout, TopBar, sidebar/ (rail + panels)
 │   │   └── ui/             # shadcn components
 │   ├── stores/             # Zustand stores
 │   ├── lib/

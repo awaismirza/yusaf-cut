@@ -50,7 +50,8 @@ iteration and some rough edges around packaging.
 | Multi-clip editing and Add Clip support | Complete |
 | Multi-track audio with music ducking | Complete |
 | Project snapshots and named restore points | Complete |
-| Toolbar category menus for File, Capture, and Project | Complete |
+| Workspace modes (Transcribe / Edit) with mode-aware left sidebar | Complete |
+| Top-bar Project menu with recent projects | Complete |
 | Blocking-operation progress dialogs | Complete |
 | One-click filler word removal | Complete |
 | DTW word-timestamp refinement via `whisper.cpp --dtw` | Complete |
