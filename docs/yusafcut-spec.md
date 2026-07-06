@@ -429,6 +429,19 @@ Let users grab a paragraph and drop it elsewhere in the transcript. This rearran
 
 As described in Phase 6 — copy most of the stream, only re-encode the few seconds around each cut. Use `ffmpeg`'s `-c copy` with careful keyframe detection (`ffprobe -select_streams v -show_frames`).
 
+### 6.8 Built-in recorder (shipped in 4.7.0)
+
+Record inside the app instead of importing files: screen, screen + camera
+(picture-in-picture composited at record time via `scale2ref` + `overlay`),
+camera, or a voice-over. Capture uses the bundled ffmpeg's avfoundation input
+with `h264_videotoolbox`. System-wide shortcuts — `⌥⌘R` record/stop, `⌥⌘P`
+pause/resume (each pause starts a new segment; stop joins segments with a
+lossless `-c copy` concat), `⌥⌘E` re-record. On stop the clip is imported,
+auto-transcribed with the best installed Whisper model, and **appended to the
+end of the EDL**, so a new take always lands at the end of the video. The main
+window minimises during screen capture and a floating HUD (elapsed time,
+pause/re-record/stop) plus a 3-2-1 countdown drive the session.
+
 ---
 
 ## 7. Risks and how to handle them

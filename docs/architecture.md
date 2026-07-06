@@ -22,6 +22,8 @@ This document explains how the code maps to the spec at the repo root.
 │   │    jobsStore      — background job mirror from Rust      │   │
 │   │    editorUiStore  — workspace mode, active panel,        │   │
 │   │                     aspect ratio, zoom, find state       │   │
+│   │    recordingStore — recorder session, devices, global    │   │
+│   │                     shortcuts, auto-append pipeline      │   │
 │   │  + zundo (50-step undo on projectStore)                  │   │
 │   └────────────────┬─────────────────────────────────────────┘   │
 └────────────────────┼─────────────────────────────────────────────┘
@@ -31,9 +33,10 @@ This document explains how the code maps to the spec at the repo root.
 │ Rust backend (src-tauri/)                                        │
 │                                                                  │
 │   commands/{media,transcribe,project,export,snapshots,llm,       │
-│             jobs,misc,pauses}                                    │
+│             jobs,misc,pauses,record}                             │
 │   ├── parse_ffprobe_json  (pure, tested)                         │
 │   ├── parse_whisper_json  (pure, tested)                         │
+│   ├── recorder arg/device parsers (pure, tested)                 │
 │   └── filter graph builder (pure, tested)                        │
 │                                                                  │
 │   sidecar processes:                                             │
@@ -71,6 +74,49 @@ type Project = {
 
 `tests/edl.test.ts` is the canonical reference. Read it before changing any
 EDL operation.
+
+## Recorder
+
+The in-app recorder (v4.7.0) captures the screen, screen + camera
+(picture-in-picture), camera, or a microphone-only voice-over — all through the
+bundled `ffmpeg` sidecar's **avfoundation** input with `h264_videotoolbox`
+hardware encoding. No extra binaries or native capture code.
+
+Data flow:
+
+```
+RecorderDialog / ⌥⌘R ──▶ recordingStore.beginCountdown()
+                              │ 3-2-1 · minimise window for screen modes
+                              ▼
+                    start_recording(opts)          (commands/record.rs)
+                              │ spawns ffmpeg → recordings/rec-<id>/seg-000.mp4
+      pause ⌥⌘P ──▶ pause_recording  — sends `q`, segment is finalised
+      resume    ──▶ resume_recording — spawns seg-001, seg-002, …
+      re-record ⌥⌘E ─▶ cancel_recording + start_recording (same opts)
+      stop ⌥⌘R  ──▶ stop_recording   — concat demuxer joins segments (-c copy)
+                              │ RecordingResult { path, durationSec, mode }
+                              ▼
+              importMedia → transcribe (best installed model)
+              → snapWordsToSilences → addMediaWithTranscript
+              → segment APPENDED at the end of the EDL
+```
+
+Key pieces:
+
+- `src-tauri/src/recorder.rs` — pure, unit-tested: avfoundation device-list
+  parser, per-mode ffmpeg argument builder (including the `scale2ref` +
+  `overlay` PiP filter), concat manifest builder.
+- `src-tauri/src/commands/record.rs` — process lifecycle, `record:state`
+  events (1 Hz elapsed ticks) and `record:error`.
+- `src/stores/recordingStore.ts` — session state machine
+  (`idle → countdown → recording ⇄ paused → finalizing → processing`),
+  device defaults, persisted options, global-shortcut registration
+  (`tauri-plugin-global-shortcut`), auto-append pipeline.
+- `src/components/Recorder/` — `RecorderDialog` (source pickers, PiP
+  corner/size, shortcut cheat-sheet) and `RecordingHUD` (floating live pill).
+
+Pause/resume never re-encodes: every segment uses identical encoder settings,
+so the final join is a lossless stream copy.
 
 ## UI loading pattern
 

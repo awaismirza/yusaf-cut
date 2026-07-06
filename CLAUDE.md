@@ -101,11 +101,12 @@ ffprobe / ffmpeg / whisper-cli / mlx-sidecar
 
 - **`lib/edl.ts`** — pure EDL operations (no imports from React/Tauri)
 - **`lib/ipc.ts`** — all Tauri `invoke` wrappers in one place
-- **`stores/`** — `projectStore` (EDL + project metadata), `playerStore` (video playback), `jobsStore` (background jobs), `uiStore` (modal state + operation loaders)
+- **`stores/`** — `projectStore` (EDL + project metadata), `playerStore` (video playback), `jobsStore` (background jobs), `uiStore` (modal state + operation loaders), `recordingStore` (recorder session + global shortcuts + auto-append)
 - **`components/Toolbar/`** — top toolbar with responsive overflow dropdowns (collapses at < 860 px), all progress dialogs, and transcription settings
 - **`components/Toolbox/`** — inline editing tools: markers, trim silences, chapters, b-roll, zoom
 - **`components/TranscriptEditor/`** — TipTap editor with custom `WordNode` that maps each word to its EDL segment
 - **`components/VideoPreview/`** — single `<video>` element; see `docs/architecture.md` for why
+- **`components/Recorder/`** — recorder setup dialog + floating recording HUD; capture itself runs in Rust (`commands/record.rs` + pure logic in `recorder.rs`)
 
 ### UI loading pattern
 
@@ -126,7 +127,7 @@ To add a loader for a new heavy operation:
 
 ### Rust backend (`src-tauri/src/`)
 
-Commands are registered in `commands/mod.rs` and grouped by domain: `media`, `transcribe`, `project`, `export`, `snapshots`, `llm`, `jobs`, `misc`. Business logic lives in the module files, not the command handlers.
+Commands are registered in `commands/mod.rs` and grouped by domain: `media`, `transcribe`, `project`, `export`, `snapshots`, `llm`, `jobs`, `misc`, `record`. Business logic lives in the module files, not the command handlers.
 
 ### Transcription engine
 
