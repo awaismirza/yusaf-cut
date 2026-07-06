@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.6.0] — 2026-07-06
+
+### Added
+- **Workspace modes** — a `Transcribe | Edit` toggle in the top bar. Transcribe mode focuses on getting the text right (Media, Transcribe panels; transcript read-only); Edit mode focuses on cutting (Edit Tools, Music, Export panels).
+- **Project menu in the top bar** — New/Open project, Open video, Add clip, Recent projects (last 5), Snapshots, Close project.
+- **Panel registry** — sidebar panels are declared in one registry (`sidebar/registry.tsx`); adding a panel is one entry + one component file.
+- Recent projects list (`src/lib/recentProjects.ts`, localStorage-backed).
+
+### Changed
+- **Sidebar moved to the left** with the icon rail restored; the v4.4.0 right sidebar components were replaced by `components/editor/sidebar/`.
+- The combined inspector panel was split into focused panels: Media, Transcribe, Edit Tools, Music, Export.
+- Project lifecycle actions moved out of the sidebar into the top bar; Save is a prominent top-bar button.
+- Importing media with no transcript now lands in Transcribe mode automatically; a toast nudges to Edit mode after transcription.
+
 ## [4.5.0] — 2026-07-06
 
 ### Added
