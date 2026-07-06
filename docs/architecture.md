@@ -16,10 +16,12 @@ This document explains how the code maps to the spec at the repo root.
 │             ▼                              ▼                     │
 │   ┌──────────────────────────────────────────────────────────┐   │
 │   │  Zustand stores                                          │   │
-│   │    projectStore  — EDL + project metadata                │   │
-│   │    playerStore   — playback position, markers, zoom      │   │
-│   │    uiStore       — modal state, loaders, toasts          │   │
-│   │    jobsStore     — background job mirror from Rust       │   │
+│   │    projectStore    — EDL + project metadata              │   │
+│   │    playerStore    — playback position, markers, zoom     │   │
+│   │    uiStore        — modal state, loaders, toasts         │   │
+│   │    jobsStore      — background job mirror from Rust      │   │
+│   │    editorUiStore  — workspace mode, active panel,        │   │
+│   │                     aspect ratio, zoom, find state       │   │
 │   │  + zundo (50-step undo on projectStore)                  │   │
 │   └────────────────┬─────────────────────────────────────────┘   │
 └────────────────────┼─────────────────────────────────────────────┘
@@ -109,6 +111,16 @@ ML + Metal acceleration. Key CLI flags for timestamp accuracy:
 - `--word-thold 0.01` — keep all tokens even with low probability
 - `--max-len 0` — unbounded segment length; prevents timestamp compression drift
 - `--best-of 5 --beam-size 5` — beam search for transcript quality
+- `--dtw <preset>` — DTW cross-attention timestamp refinement, all models
+  including `large.v3` / `large.v3.turbo` (dot-form preset names; the parser
+  prefers the emitted `t_dtw` values and falls back to standard offsets)
+
+If whisper-cli rejects the DTW preset (stale binary), the transcription is
+retried once without `--dtw` rather than failing.
+
+After transcription, word boundaries are snapped to ffmpeg-silencedetect
+edges by `src/lib/timestampSnap.ts` (max 120 ms adjustment) so cuts always
+land in silence, never mid-word.
 
 WhisperKit (ANE) was removed in v3.2.0 because quantized models produced
 inaccurate word timestamps causing video/text drift. To restore it, run:
@@ -122,17 +134,35 @@ milliseconds, which satisfies the ~50 ms accuracy target in the spec.
 
 Creating a second `<video>` node when the layout switches from the landing
 screen to the editing view would unmount and remount the element, dropping
-the loaded source and decoded buffers. The `App` component always renders the
-same `<aside>` wrapping the single `VideoPreview` instance and only toggles
+the loaded source and decoded buffers. The `EditorLayout` component always renders the
+same wrapper around the single `VideoPreview` instance and only toggles
 CSS classes to move it between the landing and editing layouts.
 
-## Toolbar responsive overflow
+## UI layout
 
-The Toolbar uses a `ResizeObserver` on a sentinel element at the right edge of
-the left button group. When the toolbar width drops below 860 px the `compact`
-state flips to `true`, and each button group renders as a "More ▾" dropdown
-(Radix `DropdownMenu`) instead of a flat row of buttons. This keeps all actions
-reachable at any window size without hiding any functionality.
+`EditorLayout` is the root shell component (v4.6.0). It renders:
+
+- **TopBar** (40 px) — Project menu (New/Open project, Open video, Add clip,
+  Recent projects, Snapshots, Close), project name, dirty indicator,
+  `Transcribe | Edit` mode toggle, Undo, Redo, Save
+- **EditorSidebar** (left, fixed) — 52 px `ToolRail` + 320 px `InspectorPanel`
+- **TranscriptEditor** (centre, resizable) — shown only when a transcript exists;
+  read-only while in Transcribe mode
+- **PreviewWorkspace** (right, flex-1) — wraps the single `<video>` instance
+- **BottomTimeline** — waveform, shown only when media is loaded
+- **StatusBar** — project stats
+- **Toolbar** — renders only its modal dialogs; no visible chrome
+
+Panels are declared in `components/editor/sidebar/registry.tsx` and filtered by
+`editorUiStore.workspaceMode`: Transcribe mode shows Media and Transcribe;
+Edit mode shows Edit Tools, Music, and Export. `EditorSidebar` composes
+`ToolRail` (one icon per registered panel) and `InspectorPanel` (renders the
+active panel component). Panel and mode state live in `editorUiStore`.
+Importing media with no transcript auto-switches to Transcribe mode.
+
+The old two-row toolbar was removed in v4.4.0; the v4.4.0 right sidebar moved
+to the left in v4.6.0. All actions are accessible through the sidebar panels,
+the TopBar Project menu, or keyboard shortcuts.
 
 ## Cross-platform code that isn't
 

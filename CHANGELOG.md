@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.6.0] — 2026-07-06
+
+### Added
+- **Workspace modes** — a `Transcribe | Edit` toggle in the top bar. Transcribe mode focuses on getting the text right (Media, Transcribe panels; transcript read-only); Edit mode focuses on cutting (Edit Tools, Music, Export panels).
+- **Project menu in the top bar** — New/Open project, Open video, Add clip, Recent projects (last 5), Snapshots, Close project.
+- **Panel registry** — sidebar panels are declared in one registry (`sidebar/registry.tsx`); adding a panel is one entry + one component file.
+- Recent projects list (`src/lib/recentProjects.ts`, localStorage-backed).
+
+### Changed
+- **Sidebar moved to the left** with the icon rail restored; the v4.4.0 right sidebar components were replaced by `components/editor/sidebar/`.
+- The combined inspector panel was split into focused panels: Media, Transcribe, Edit Tools, Music, Export.
+- Project lifecycle actions moved out of the sidebar into the top bar; Save is a prominent top-bar button.
+- Importing media with no transcript now lands in Transcribe mode automatically; a toast nudges to Edit mode after transcription.
+
+## [4.5.0] — 2026-07-06
+
+### Added
+- **DTW word-timestamp refinement for `large-v3` and `large-v3-turbo`** — the transcription pipeline now passes `--dtw large.v3` / `--dtw large.v3.turbo` and consumes the DTW-refined `t_dtw` token timestamps, bringing per-word accuracy from ~100 ms to ~20 ms. Fixes click-to-seek landing off-target, playback-highlight lag, and cumulative drift on long videos.
+- **Silence-boundary snapping** — freshly transcribed word boundaries that fall inside an ffmpeg-detected silence are snapped to the silence edge (max 120 ms adjustment), so export cuts land in silence instead of clipping syllables. New pure module `src/lib/timestampSnap.ts`.
+- Manual sync-accuracy test recipe in `docs/manual-test.md`.
+
+### Changed
+- `parse_whisper_json` prefers DTW timestamps when present and falls back to standard offsets, so older `whisper-cli` builds keep working.
+- If the bundled `whisper-cli` rejects the `--dtw` preset, transcription retries once without DTW instead of failing.
+
+### Fixed
+- **Root cause of the v4.3.0 "large-v3 DTW failure"** — the app passed hyphenated preset names (`--dtw large-v3`) where whisper.cpp expects dot-separated ones (`--dtw large.v3`). The bundled binary supported DTW for the large models all along; with the correct preset names all six models now get refinement.
+
+## [4.4.0] — 2026-06-28
+
+### Added
+- Right-side editor sidebar: 52 px icon rail with 12 panels (Layout, Background, Screen, Crop, Annotate, Mask, Transcript, Captions, AI, Media, Export, Settings)
+- Right inspector panel (320 px, collapsible) driven by the active rail icon
+- `editorUiStore` — UI state for active panel, aspect ratio, preview zoom, auto-fit zoom, find-in-transcript open state
+- `EditorLayout` component — root shell with drag-resize, TopBar, RightEditorSidebar, BottomTimeline
+- `TopBar` — minimal 40 px bar with project name, dirty indicator, Save, Undo, Redo buttons
+- `PreviewWorkspace` — wraps VideoPreview with ResizeObserver auto-fit zoom tracking
+- `BottomTimeline` — wraps the waveform with a clear timeline section boundary
+
+### Changed
+- `Toolbar` component now renders only its modal dialogs; all toolbar chrome removed
+- All file/project actions (Open, Add Clip, Record, Music, New/Open/Close Project, Snapshots) moved to the Media panel
+- Export .mp4 and caption export moved to the Export panel
+- Transcribe / Re-Transcribe moved to the Transcript panel
+- Toolbox editing tools (Select, Find, Markers, Edit, Zoom) moved to the Transcript panel
+- `App.tsx` reduced to hooks, drag-drop wiring, and global overlay rendering
+- Welcome screen copy updated to reference the Media and Transcript panels
+
 ## [4.3.0] - 2026-06-05
 
 ### Added

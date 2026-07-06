@@ -1,6 +1,6 @@
 [package]
 name = "yusafcut"
-version = "4.3.0"
+version = "4.6.0"
 description = "Local-first text-based video editor"
 authors = ["YusafCut contributors"]
 license = "AGPL-3.0-or-later"

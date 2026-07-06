@@ -664,10 +664,6 @@ async fn transcribe_whisper_cpp(
     if let Some(dtw) = dtw_preset_for_model(&opts.model_name) {
         whisper_args.push("--dtw".into());
         whisper_args.push(dtw.into());
-    } else if opts.model_name == "large-v3" {
-        log::info!(
-            "Skipping DTW for large-v3 because bundled whisper-cli does not support that preset"
-        );
     }
 
     if !use_coreml {
@@ -687,22 +683,58 @@ async fn transcribe_whisper_cpp(
         whisper_args.push("--diarize".into());
     }
 
+    let (mut exit_ok, mut stderr) =
+        run_whisper_cli(app, opts, job, whisper_args.clone()).await?;
+
+    // A stale bundled binary rejects the --dtw preset before transcribing.
+    // Retry once without DTW rather than failing the whole transcription.
+    if !exit_ok && stderr_mentions_dtw_failure(&stderr) {
+        log::warn!("whisper-cli rejected --dtw — retrying without DTW refinement");
+        let (retry_ok, retry_stderr) =
+            run_whisper_cli(app, opts, job, strip_dtw_args(whisper_args)).await?;
+        exit_ok = retry_ok;
+        stderr = retry_stderr;
+    }
+
+    if !exit_ok {
+        return Err(format!("whisper-cli failed: {}", stderr.trim()));
+    }
+
+    let json_path = wav.with_extension("wav.json");
+    let json = fs::read_to_string(&json_path)
+        .await
+        .map_err(|e| format!("reading whisper json {}: {}", json_path.display(), e))?;
+    let words = parse_whisper_json(&json).map_err(|e| e.to_string())?;
+
+    let _ = fs::remove_file(wav).await;
+    let _ = fs::remove_file(&json_path).await;
+
+    Ok(words)
+}
+
+/// Spawn whisper-cli with `args`, stream progress to the UI, and return
+/// `(exit_ok, captured_stderr)`. Progress is driven by two sources,
+/// reconciled so it only ever moves forward (`last_progress` is monotonic):
+///   1. Real progress parsed from whisper-cli stderr timestamp lines.
+///   2. A 1-second synthetic heartbeat, used whenever real progress lags or
+///      never arrives (some whisper-cli builds buffer those lines until the
+///      very end, which previously froze the overlay at 1%).
+async fn run_whisper_cli(
+    app: &AppHandle,
+    opts: &TranscribeOpts,
+    job: &crate::jobs::JobHandle,
+    args: Vec<String>,
+) -> Result<(bool, String), String> {
     let shell = app.shell();
     let whisper = shell
         .sidecar("whisper-cli")
         .map_err(|e| format!("whisper-cli sidecar not available: {e}"))?
-        .args(whisper_args);
+        .args(args);
 
     let (mut rx, _child) = whisper.spawn().map_err(|e| format!("spawn whisper-cli: {e}"))?;
     let mut stderr = String::new();
     let total_duration = opts.media_duration.max(1.0);
 
-    // Progress is driven by two sources, reconciled so it only ever moves
-    // forward (`last_progress` is monotonic):
-    //   1. Real progress parsed from whisper-cli stderr timestamp lines.
-    //   2. A 1-second synthetic heartbeat, used whenever real progress lags or
-    //      never arrives (some whisper-cli builds buffer those lines until the
-    //      very end, which previously froze the overlay at 1%).
     let started_at = std::time::Instant::now();
     let mut last_progress: f64 = 0.01;
     let mut ticker = tokio::time::interval(std::time::Duration::from_secs(1));
@@ -769,20 +801,7 @@ async fn transcribe_whisper_cpp(
         }
     };
 
-    if !exit_ok {
-        return Err(format!("whisper-cli failed: {}", stderr.trim()));
-    }
-
-    let json_path = wav.with_extension("wav.json");
-    let json = fs::read_to_string(&json_path)
-        .await
-        .map_err(|e| format!("reading whisper json {}: {}", json_path.display(), e))?;
-    let words = parse_whisper_json(&json).map_err(|e| e.to_string())?;
-
-    let _ = fs::remove_file(wav).await;
-    let _ = fs::remove_file(&json_path).await;
-
-    Ok(words)
+    Ok((exit_ok, stderr))
 }
 
 // ---------------------------------------------------------------------------
@@ -846,27 +865,50 @@ fn tempfile_with_ext(ext: &str) -> PathBuf {
 
 /// Map a model slug to the `--dtw` preset the bundled `whisper-cli` accepts.
 ///
-/// DTW (Dynamic Time Warping) refines word timestamps, but the bundled
-/// whisper-cli only ships the alignment heads for a subset of presets. Passing
-/// an unknown preset makes whisper-cli abort with
-/// `error: unknown DTW preset '<name>'` before producing any JSON.
+/// DTW (Dynamic Time Warping) refines word timestamps using cross-attention
+/// alignment, bringing per-word accuracy from ~100 ms down to ~20 ms. Modern
+/// whisper.cpp (≥ 1.7.x) ships alignment heads for every preset below,
+/// including `large.v3` and `large.v3.turbo` (dot-separated names).
 ///
-/// `large-v3` and `large-v3-turbo` are intentionally excluded: the current
-/// binary rejects `--dtw large-v3`, and the turbo/distilled variants are not in
-/// its DTW model list. Both still transcribe fine without DTW.
+/// If the bundled binary is older and rejects the preset, the caller retries
+/// once without `--dtw` — see `stderr_mentions_dtw_failure`.
 fn dtw_preset_for_model(model_name: &str) -> Option<&'static str> {
     match model_name {
         "tiny" => Some("tiny"),
         "base" => Some("base"),
         "small" => Some("small"),
         "medium" => Some("medium"),
-        "large-v1" => Some("large-v1"),
-        "large-v2" => Some("large-v2"),
-        // Bundled whisper-cli rejects `--dtw large-v3`; skip rather than fail.
-        "large-v3" => None,
-        "large-v3-turbo" => None,
+        "large-v1" => Some("large.v1"),
+        "large-v2" => Some("large.v2"),
+        "large-v3" => Some("large.v3"),
+        "large-v3-turbo" => Some("large.v3.turbo"),
         _ => None,
     }
+}
+
+/// True when a failed whisper-cli run looks like a DTW-preset rejection
+/// (stale bundled binary) rather than a genuine transcription failure.
+fn stderr_mentions_dtw_failure(stderr: &str) -> bool {
+    let s = stderr.to_lowercase();
+    s.contains("dtw") && (s.contains("unknown") || s.contains("invalid"))
+}
+
+/// Remove `--dtw <preset>` from an argument list.
+fn strip_dtw_args(args: Vec<String>) -> Vec<String> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut skip_next = false;
+    for a in args {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if a == "--dtw" {
+            skip_next = true;
+            continue;
+        }
+        out.push(a);
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -932,17 +974,46 @@ mod tests {
         assert_eq!(dtw_preset_for_model("base"), Some("base"));
         assert_eq!(dtw_preset_for_model("small"), Some("small"));
         assert_eq!(dtw_preset_for_model("medium"), Some("medium"));
-        assert_eq!(dtw_preset_for_model("large-v1"), Some("large-v1"));
-        assert_eq!(dtw_preset_for_model("large-v2"), Some("large-v2"));
+        // Modern whisper.cpp names large-model presets with dots.
+        assert_eq!(dtw_preset_for_model("large-v1"), Some("large.v1"));
+        assert_eq!(dtw_preset_for_model("large-v2"), Some("large.v2"));
+        assert_eq!(dtw_preset_for_model("large-v3"), Some("large.v3"));
+        assert_eq!(dtw_preset_for_model("large-v3-turbo"), Some("large.v3.turbo"));
     }
 
     #[test]
-    fn dtw_preset_unsupported_models_return_none() {
-        // The bundled whisper-cli rejects `--dtw large-v3`, and turbo/distilled
-        // variants are not in its DTW model list — both must skip DTW.
-        assert_eq!(dtw_preset_for_model("large-v3"), None);
-        assert_eq!(dtw_preset_for_model("large-v3-turbo"), None);
+    fn dtw_preset_unknown_model_returns_none() {
         assert_eq!(dtw_preset_for_model("unknown-model"), None);
+        assert_eq!(dtw_preset_for_model(""), None);
+    }
+
+    #[test]
+    fn detects_dtw_rejection_in_stderr() {
+        // New binary, bad preset name:
+        assert!(stderr_mentions_dtw_failure(
+            "error: unknown DTW preset 'large.v3.turbo'"
+        ));
+        // Old binary that has no --dtw flag at all:
+        assert!(stderr_mentions_dtw_failure("error: unknown argument: --dtw"));
+        // Unrelated failures must NOT trigger the retry:
+        assert!(!stderr_mentions_dtw_failure("ggml_metal_init: failed"));
+        assert!(!stderr_mentions_dtw_failure(""));
+    }
+
+    #[test]
+    fn strip_dtw_args_removes_flag_and_value() {
+        let args: Vec<String> = vec!["-m", "model.bin", "--dtw", "large.v3", "-f", "audio.wav"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let stripped = strip_dtw_args(args);
+        assert_eq!(stripped, vec!["-m", "model.bin", "-f", "audio.wav"]);
+    }
+
+    #[test]
+    fn strip_dtw_args_is_noop_without_flag() {
+        let args: Vec<String> = vec!["-m", "model.bin"].into_iter().map(String::from).collect();
+        assert_eq!(strip_dtw_args(args.clone()), args);
     }
 
     #[test]
