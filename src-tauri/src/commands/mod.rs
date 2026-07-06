@@ -4,5 +4,6 @@ pub mod media;
 pub mod misc;
 pub mod pauses;
 pub mod project;
+pub mod record;
 pub mod snapshots;
 pub mod transcribe;
