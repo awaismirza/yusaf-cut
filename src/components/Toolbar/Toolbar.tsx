@@ -50,6 +50,7 @@ import {
   type Word,
 } from "@/lib/edl";
 import { buildSrt, buildVtt } from "@/lib/captions";
+import { snapWordsToSilences } from "@/lib/timestampSnap";
 import { usePlayerStore } from "@/stores/playerStore";
 import { MusicTracksDialog } from "@/components/Toolbox/MusicTracksDialog";
 import { SnapshotsDialog } from "@/components/Toolbox/SnapshotsDialog";
@@ -327,7 +328,18 @@ export function Toolbar() {
         translate: transcribeTranslate,
         diarize: transcribeDiarize,
       });
-      writeTranscriptCache(media, result.words);
+      let recordedWords = result.words;
+      try {
+        const silences = await detectPauses({
+          mediaPath: media.path,
+          noiseThreshold: -35,
+          minDuration: 0.5,
+        });
+        recordedWords = snapWordsToSilences(recordedWords, silences);
+      } catch {
+        /* non-fatal */
+      }
+      writeTranscriptCache(media, recordedWords);
       replaceProjectBaseline(
         {
           ...projectWithMedia,
@@ -335,7 +347,7 @@ export function Toolbar() {
             {
               id: crypto.randomUUID(),
               mediaId: media.id,
-              words: result.words,
+              words: recordedWords,
               sourceIn: 0,
               sourceOut: media.duration,
             },
@@ -344,7 +356,7 @@ export function Toolbar() {
         },
         { dirty: true, filePath: null },
       );
-      pushToast({ title: "Recording transcribed", description: `${result.words.length} words` });
+      pushToast({ title: "Recording transcribed", description: `${recordedWords.length} words` });
 
       // Auto-surface pauses for the recording too (best-effort, non-blocking).
       if (result.words.length > 0) {
@@ -594,9 +606,11 @@ export function Toolbar() {
           totalWords += existingWords.length;
           continue;
         }
-        const words =
-          cached ??
-          (
+        let words: Word[];
+        if (cached) {
+          words = cached; // cache already contains snapped timestamps
+        } else {
+          words = (
             await transcribe({
               mediaId,
               mediaPath: media.path,
@@ -608,6 +622,19 @@ export function Toolbar() {
               diarize: transcribeDiarize,
             })
           ).words;
+          // Snap word boundaries to signal-level silence edges (best-effort —
+          // a silencedetect failure must never fail the transcription).
+          try {
+            const silences = await detectPauses({
+              mediaPath: media.path,
+              noiseThreshold: -35,
+              minDuration: 0.5,
+            });
+            words = snapWordsToSilences(words, silences);
+          } catch {
+            /* non-fatal */
+          }
+        }
         writeTranscriptCache(media, words);
         nextProject = applyTranscriptToMedia(nextProject, mediaId, words, force);
         totalWords += words.length;
