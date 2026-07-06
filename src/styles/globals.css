@@ -26,39 +26,46 @@
     --card-foreground: 240 10% 3.9%;
   }
 
-  /* ── YusafCut Editor design tokens — warm-neutral dark + teal accent ────
-     Ported from the claude.ai/design handoff. HSL approximations of the
-     original oklch values, chosen so the existing shadcn components keep
-     working but the look matches the design.                             */
+  /* ── YusafCut "Studio Graphite" design tokens ───────────────────────────
+     Cool graphite surfaces with a violet undertone + a single Halo-violet
+     accent. Chrome surfaces derive from --panel/--panel-deep so re-theming
+     stays a one-block change. Recording state owns its own red (--rec) so
+     "live" is never confused with delete/destructive coral.              */
   [data-theme="dark"],
   .dark {
-    --background: 30 4% 12%; /* warm near-black window bg */
-    --foreground: 30 5% 96%; /* primary text */
-    --primary: 188 60% 55%; /* teal/cyan accent */
-    --primary-foreground: 195 30% 12%;
-    --secondary: 30 4% 16%; /* panels */
-    --secondary-foreground: 30 5% 96%;
-    --muted: 30 4% 16%;
-    --muted-foreground: 30 4% 58%; /* tertiary */
-    --accent: 30 4% 21%; /* hover bg */
-    --accent-foreground: 30 5% 96%;
-    --destructive: 18 70% 50%;
+    --background: 250 7% 8%; /* ink — window bg */
+    --foreground: 250 10% 96%; /* primary text */
+    --primary: 255 85% 70%; /* Halo violet accent */
+    --primary-foreground: 255 30% 10%;
+    --secondary: 250 6% 12%; /* panels */
+    --secondary-foreground: 250 10% 96%;
+    --muted: 250 6% 14%;
+    --muted-foreground: 250 6% 62%; /* tertiary */
+    --accent: 250 6% 18%; /* hover bg */
+    --accent-foreground: 250 10% 96%;
+    --destructive: 11 80% 58%; /* coral — delete semantics */
     --destructive-foreground: 0 0% 98%;
-    --border: 30 4% 24%;
-    --input: 30 4% 24%;
-    --ring: 188 60% 55%;
-    --popover: 30 4% 15%; /* slightly elevated above background (12%) */
-    --popover-foreground: 30 5% 96%;
-    --card: 30 4% 14%;
-    --card-foreground: 30 5% 96%;
+    --border: 250 6% 19%;
+    --input: 250 6% 22%;
+    --ring: 255 85% 70%;
+    --popover: 250 6% 13%; /* elevated above background */
+    --popover-foreground: 250 10% 96%;
+    --card: 250 6% 11%;
+    --card-foreground: 250 10% 96%;
+
+    /* Chrome surface ladder (darkest → lightest) */
+    --panel-deep: 250 8% 6%; /* timeline well */
+    --panel: 250 7% 9.5%; /* top bar, tool rail */
+    --panel-raised: 250 6% 13%; /* inspector, popovers */
 
     /* YusafCut semantic tokens (not part of shadcn's set) */
-    --filler: 42 70% 65%; /* amber — filler word highlight */
-    --filler-strong: 42 70% 58%;
-    --delete: 18 70% 55%; /* red — deleted regions */
-    --speaker-a: 200 60% 68%; /* light teal */
-    --speaker-b: 18 65% 68%; /* warm coral */
+    --filler: 42 85% 62%; /* amber — filler word highlight */
+    --filler-strong: 42 85% 55%;
+    --delete: 11 75% 58%; /* coral — deleted regions */
+    --speaker-a: 210 70% 72%; /* sky */
+    --speaker-b: 20 75% 70%; /* warm coral */
     --pulse: 145 55% 56%; /* green privacy indicator */
+    --rec: 0 85% 62%; /* recording red — reserved for live capture */
   }
 
   :root {
@@ -90,7 +97,7 @@
   z-index: 10;
   flex-shrink: 0;
   border-bottom: 1px solid hsl(var(--border));
-  background: hsl(30 5% 9%);
+  background: hsl(var(--panel));
   box-shadow: 0 1px 0 hsl(0 0% 100% / 0.03) inset;
 }
 .editor-toolbar-top {
@@ -279,7 +286,7 @@
   height: 14px;
   border-radius: 50%;
   background: hsl(var(--delete));
-  color: hsl(30 5% 10%);
+  color: hsl(250 8% 8%);
   font:
     700 9px/14px ui-sans-serif,
     system-ui,
@@ -325,7 +332,9 @@
   cursor: pointer;
   user-select: none;
   vertical-align: baseline;
-  transition: background 0.1s, color 0.1s;
+  transition:
+    background 0.1s,
+    color 0.1s;
 }
 
 .pause-marker:hover {
@@ -641,7 +650,7 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: hsl(30 5% 7%);
+  background: hsl(var(--panel-deep));
   color: hsl(var(--muted-foreground));
 }
 .timeline-header {
@@ -773,9 +782,13 @@
   position: absolute;
   bottom: 0;
   min-width: 2px;
-  border-radius: 2px;
-  background: hsl(var(--muted-foreground) / 0.78);
-  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.05);
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(
+    180deg,
+    hsl(var(--muted-foreground) / 0.92),
+    hsl(var(--muted-foreground) / 0.5)
+  );
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.08);
 }
 .timeline-bar.is-filler {
   background: hsl(var(--filler));
@@ -843,7 +856,7 @@
 }
 .timeline-marker.is-out span {
   background: hsl(var(--filler));
-  color: hsl(30 5% 10%);
+  color: hsl(250 8% 8%);
 }
 .timeline-playhead {
   position: absolute;
@@ -851,7 +864,8 @@
   bottom: 0;
   width: 0;
   border-left: 2px solid hsl(var(--primary));
-  filter: drop-shadow(0 0 5px hsl(var(--primary) / 0.45));
+  filter: drop-shadow(0 0 7px hsl(var(--primary) / 0.6));
+  z-index: 2;
 }
 .timeline-playhead span {
   position: absolute;
@@ -879,7 +893,7 @@
   left: 4px;
   padding: 1px 6px;
   background: hsl(40 85% 60%);
-  color: hsl(30 20% 10%);
+  color: hsl(250 8% 8%);
   font:
     600 10px/1.2 ui-sans-serif,
     system-ui,
@@ -900,7 +914,6 @@
 /* Minimap shown above the rail when zoomed in. Gives orientation while panning. */
 .timeline-minimap {
   position: relative;
-  margin-left: auto;
   background: hsl(var(--border) / 0.55);
   border: 1px solid hsl(var(--border));
   border-radius: 3px;
@@ -931,12 +944,12 @@
    TOP BAR — replaces the two-row toolbar chrome
    ════════════════════════════════════════════════════════════════════════ */
 .editor-topbar {
-  height: 40px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 14px;
-  background: hsl(30 5% 9%);
+  background: hsl(var(--panel));
   border-bottom: 1px solid hsl(var(--border));
   flex-shrink: 0;
   z-index: 10;
@@ -946,7 +959,10 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font: 600 13px/1 ui-sans-serif, system-ui, sans-serif;
+  font:
+    600 13px/1 ui-sans-serif,
+    system-ui,
+    sans-serif;
   color: hsl(var(--foreground) / 0.9);
   min-width: 0;
   flex: 1;
@@ -987,7 +1003,10 @@
   border: 0;
   background: transparent;
   cursor: pointer;
-  font: 500 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+  font:
+    500 12px/1.4 ui-sans-serif,
+    system-ui,
+    sans-serif;
   color: hsl(var(--muted-foreground));
   transition:
     background 120ms ease,
@@ -999,9 +1018,9 @@
 }
 
 .mode-toggle-btn.is-active {
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  background: hsl(var(--primary) / 0.16);
+  color: hsl(var(--primary));
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.3);
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -1020,8 +1039,8 @@
   flex-direction: column;
   align-items: center;
   padding: 8px 0;
-  gap: 2px;
-  background: hsl(30 5% 9%);
+  gap: 4px;
+  background: hsl(var(--panel));
   border-right: 1px solid hsl(var(--border));
   overflow-y: auto;
   scrollbar-width: none;
@@ -1077,7 +1096,7 @@
   transition: width 150ms ease;
   display: flex;
   flex-direction: column;
-  background: hsl(30 4% 14%);
+  background: hsl(var(--panel-raised));
   border-right: 1px solid hsl(var(--border));
   flex-shrink: 0;
 }
@@ -1090,7 +1109,10 @@
   flex-shrink: 0;
 }
 .inspector-panel-title {
-  font: 600 12px/1 ui-sans-serif, system-ui, sans-serif;
+  font:
+    600 12px/1 ui-sans-serif,
+    system-ui,
+    sans-serif;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: hsl(var(--muted-foreground));
@@ -1122,7 +1144,10 @@
   padding: 14px 16px;
 }
 .inspector-section-label {
-  font: 600 10px/1 ui-sans-serif, system-ui, sans-serif;
+  font:
+    600 10px/1 ui-sans-serif,
+    system-ui,
+    sans-serif;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: hsl(var(--muted-foreground));
@@ -1134,7 +1159,10 @@
   flex-shrink: 0;
 }
 .inspector-hint {
-  font: 400 11px/1.4 ui-sans-serif, system-ui, sans-serif;
+  font:
+    400 11px/1.4 ui-sans-serif,
+    system-ui,
+    sans-serif;
   color: hsl(var(--muted-foreground));
   margin: 0;
 }
@@ -1145,11 +1173,17 @@
   gap: 8px;
 }
 .inspector-row-label {
-  font: 500 12px/1 ui-sans-serif, system-ui, sans-serif;
+  font:
+    500 12px/1 ui-sans-serif,
+    system-ui,
+    sans-serif;
   color: hsl(var(--muted-foreground));
 }
 .inspector-row-value {
-  font: 500 12px/1 ui-monospace, "Cascadia Code", monospace;
+  font:
+    500 12px/1 ui-monospace,
+    "Cascadia Code",
+    monospace;
   color: hsl(var(--foreground) / 0.85);
   font-variant-numeric: tabular-nums;
 }
@@ -1166,7 +1200,10 @@
   border: 0;
   background: transparent;
   color: hsl(var(--muted-foreground));
-  font: 500 11px/1 ui-sans-serif, system-ui, sans-serif;
+  font:
+    500 11px/1 ui-sans-serif,
+    system-ui,
+    sans-serif;
   cursor: pointer;
   transition:
     background 80ms ease,
@@ -1194,12 +1231,17 @@
   gap: 10px;
 }
 .inspector-slider-label {
-  font: 500 11px/1 ui-sans-serif, system-ui, sans-serif;
+  font:
+    500 11px/1 ui-sans-serif,
+    system-ui,
+    sans-serif;
   color: hsl(var(--muted-foreground));
   min-width: 60px;
 }
 .inspector-slider-value {
-  font: 500 11px/1 ui-monospace, monospace;
+  font:
+    500 11px/1 ui-monospace,
+    monospace;
   color: hsl(var(--foreground) / 0.7);
   min-width: 32px;
   text-align: right;
@@ -1228,4 +1270,430 @@
   background: hsl(var(--background));
   display: flex;
   flex-direction: column;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   RECORDER — top-bar button, setup dialog, HUD, countdown
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Pulsing capture dot. `.is-live` animates; the base state is static. */
+.recorder-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: hsl(var(--rec));
+  box-shadow: 0 0 0 3px hsl(var(--rec) / 0.18);
+  flex-shrink: 0;
+}
+.recorder-dot.is-live {
+  animation: rec-pulse 1.6s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px hsl(var(--rec) / 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 6px hsl(var(--rec) / 0.06);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .recorder-dot.is-live {
+    animation: none;
+  }
+}
+
+/* Top-bar Record button — quiet chrome until hovered, then unmistakably live. */
+.topbar-record-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 12px;
+  margin-right: 6px;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--rec) / 0.35);
+  background: hsl(var(--rec) / 0.09);
+  color: hsl(var(--foreground) / 0.92);
+  font:
+    600 12px/1 ui-sans-serif,
+    system-ui,
+    sans-serif;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+.topbar-record-btn:hover:not(:disabled) {
+  background: hsl(var(--rec) / 0.18);
+  border-color: hsl(var(--rec) / 0.6);
+}
+.topbar-record-btn:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+.topbar-record-btn:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+.topbar-record-btn.is-live {
+  border-color: hsl(var(--rec) / 0.7);
+  background: hsl(var(--rec) / 0.16);
+}
+
+/* Mode picker cards in the setup dialog */
+.recorder-mode-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 14px 6px 10px;
+  border-radius: 10px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--secondary));
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition:
+    border-color 100ms ease,
+    background 100ms ease,
+    color 100ms ease;
+}
+.recorder-mode-btn span {
+  font:
+    600 12px/1.2 ui-sans-serif,
+    system-ui,
+    sans-serif;
+  color: hsl(var(--foreground) / 0.9);
+}
+.recorder-mode-btn small {
+  font:
+    500 10px/1.2 ui-sans-serif,
+    system-ui,
+    sans-serif;
+  color: hsl(var(--muted-foreground));
+}
+.recorder-mode-btn:hover {
+  border-color: hsl(var(--primary) / 0.45);
+  color: hsl(var(--foreground));
+}
+.recorder-mode-btn.is-active {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+}
+.recorder-mode-btn:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+/* Labelled device selects */
+.recorder-field {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+.recorder-field > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font:
+    600 11px/1 ui-sans-serif,
+    system-ui,
+    sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: hsl(var(--muted-foreground));
+}
+.recorder-field select {
+  height: 32px;
+  border-radius: 7px;
+  border: 1px solid hsl(var(--input));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  padding: 0 8px;
+}
+
+/* Small segmented control (PiP corner / size) */
+.recorder-segmented {
+  display: inline-flex;
+  border: 1px solid hsl(var(--border));
+  border-radius: 7px;
+  overflow: hidden;
+  background: hsl(var(--secondary));
+}
+.recorder-segmented button {
+  width: 34px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font:
+    600 12px/1 ui-sans-serif,
+    system-ui,
+    sans-serif;
+  cursor: pointer;
+  border-right: 1px solid hsl(var(--border));
+}
+.recorder-segmented button:last-child {
+  border-right: 0;
+}
+.recorder-segmented button:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--accent));
+}
+.recorder-segmented button.is-active {
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.14);
+}
+
+/* Shortcut cheat sheet */
+.recorder-shortcuts {
+  display: flex;
+  gap: 16px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.6);
+  font:
+    500 11px/1 ui-sans-serif,
+    system-ui,
+    sans-serif;
+  color: hsl(var(--muted-foreground));
+}
+.recorder-shortcuts span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.recorder-shortcuts kbd {
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  font:
+    600 10.5px/1 ui-monospace,
+    "Cascadia Code",
+    monospace;
+  color: hsl(var(--foreground) / 0.85);
+}
+
+.recorder-start-btn {
+  background: hsl(var(--rec));
+  color: hsl(0 0% 100%);
+}
+.recorder-start-btn:hover:not(:disabled) {
+  background: hsl(var(--rec) / 0.88);
+}
+
+/* Floating HUD — glassy pill pinned top-centre while a session is live. */
+.recorder-hud {
+  position: fixed;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--rec) / 0.4);
+  background: hsl(var(--panel-deep) / 0.88);
+  backdrop-filter: blur(14px);
+  box-shadow:
+    0 8px 32px rgb(0 0 0 / 0.45),
+    0 0 0 1px rgb(255 255 255 / 0.04) inset;
+}
+.recorder-hud.is-paused {
+  border-color: hsl(var(--filler) / 0.5);
+}
+.recorder-hud-time {
+  font:
+    700 13px/1 ui-monospace,
+    "Cascadia Code",
+    monospace;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--foreground));
+}
+.recorder-hud-label {
+  font:
+    500 11px/1 ui-sans-serif,
+    system-ui,
+    sans-serif;
+  color: hsl(var(--muted-foreground));
+}
+.recorder-hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 2px;
+  padding-left: 8px;
+  border-left: 1px solid hsl(var(--border));
+}
+.recorder-hud-actions button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition:
+    background 100ms ease,
+    color 100ms ease;
+}
+.recorder-hud-actions button:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+.recorder-hud-actions button.is-stop {
+  color: hsl(var(--rec));
+}
+.recorder-hud-actions button.is-stop:hover {
+  background: hsl(var(--rec) / 0.16);
+}
+.recorder-hud-actions button.is-discard:hover {
+  color: hsl(var(--destructive));
+  background: hsl(var(--destructive) / 0.12);
+}
+
+/* Full-screen 3-2-1 countdown */
+.recorder-countdown {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: hsl(var(--panel-deep) / 0.82);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+}
+.recorder-countdown span {
+  font:
+    800 96px/1 ui-sans-serif,
+    system-ui,
+    sans-serif;
+  color: hsl(var(--foreground));
+  animation: countdown-pop 900ms ease-out;
+}
+.recorder-countdown p {
+  font:
+    500 13px/1 ui-sans-serif,
+    system-ui,
+    sans-serif;
+  color: hsl(var(--muted-foreground));
+}
+@keyframes countdown-pop {
+  0% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+  25% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .recorder-countdown span {
+    animation: none;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   TIMELINE UPGRADES — zoom controls, hover scrub, playhead badge
+   ════════════════════════════════════════════════════════════════════════ */
+.timeline-zoom {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--secondary));
+  overflow: hidden;
+}
+.timeline-zoom button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  font:
+    600 12px/1 ui-monospace,
+    monospace;
+}
+.timeline-zoom button:hover:not(:disabled) {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+.timeline-zoom button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.timeline-zoom .zoom-value {
+  min-width: 42px;
+  text-align: center;
+  font:
+    600 10.5px/1 ui-monospace,
+    "Cascadia Code",
+    monospace;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--muted-foreground));
+  text-transform: none;
+  letter-spacing: 0;
+}
+.timeline-timecode {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(var(--primary));
+  font:
+    700 11px/1 ui-monospace,
+    "Cascadia Code",
+    monospace;
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Hover scrub feedback */
+.timeline-hoverline {
+  position: absolute;
+  top: 28px;
+  bottom: 0;
+  width: 0;
+  border-left: 1px solid hsl(var(--foreground) / 0.35);
+  pointer-events: none;
+}
+.timeline-hovertip {
+  position: absolute;
+  top: 3px;
+  transform: translateX(-50%);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: hsl(var(--panel-raised));
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground) / 0.9);
+  font:
+    600 10px/1.3 ui-monospace,
+    "Cascadia Code",
+    monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
 }

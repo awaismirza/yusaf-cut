@@ -218,7 +218,11 @@ export const useRecordingStore = create<RecordingState>()((set, get) => ({
         } catch (err) {
           set({ phase: "idle", countdown: 0 });
           await restoreMainWindow();
-          toast({ title: "Recording failed to start", description: String(err), variant: "destructive" });
+          toast({
+            title: "Recording failed to start",
+            description: String(err),
+            variant: "destructive",
+          });
         }
       })();
     };
@@ -322,7 +326,11 @@ async function appendRecordingToProject(path: string) {
     media = await importMedia(path);
   } catch (err) {
     setMediaLoading(false);
-    toast({ title: "Failed to import recording", description: String(err), variant: "destructive" });
+    toast({
+      title: "Failed to import recording",
+      description: String(err),
+      variant: "destructive",
+    });
     return;
   }
   setMediaLoading(false);
