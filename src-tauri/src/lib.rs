@@ -13,6 +13,7 @@ pub mod export_state;
 pub mod jobs;
 pub mod media;
 pub mod project;
+pub mod recorder;
 pub mod recording_state;
 pub mod smart_cut;
 pub mod snapshots;
@@ -34,11 +35,16 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             commands::media::import_media,
-            commands::media::start_native_recording,
-            commands::media::stop_native_recording,
+            commands::record::list_recording_devices,
+            commands::record::start_recording,
+            commands::record::pause_recording,
+            commands::record::resume_recording,
+            commands::record::stop_recording,
+            commands::record::cancel_recording,
             commands::transcribe::transcribe,
             commands::transcribe::list_models,
             commands::transcribe::download_model,
