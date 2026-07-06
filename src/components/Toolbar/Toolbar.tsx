@@ -8,13 +8,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { replaceProjectBaseline, useProjectStore } from "@/stores/projectStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -38,25 +31,17 @@ import {
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import {
-  Captions,
   CheckCircle2,
-  ChevronDown,
   Download,
-  FilePlus2,
   FolderOpen,
-  History,
-  MonitorUp,
   MicVocal,
-  Music,
-  Power,
+  MonitorUp,
   Radio,
-  Save,
   Scissors,
   Settings2,
   Square,
   Video,
 } from "lucide-react";
-import { formatDuration } from "@/lib/timecode";
 import {
   addMediaWithTranscript as buildProjectWithMedia,
   newProject,
@@ -65,8 +50,9 @@ import {
   type Word,
 } from "@/lib/edl";
 import { buildSrt, buildVtt } from "@/lib/captions";
+import { addRecentProject } from "@/lib/recentProjects";
+import { snapWordsToSilences } from "@/lib/timestampSnap";
 import { usePlayerStore } from "@/stores/playerStore";
-import { Toolbox } from "@/components/Toolbox/Toolbox";
 import { MusicTracksDialog } from "@/components/Toolbox/MusicTracksDialog";
 import { SnapshotsDialog } from "@/components/Toolbox/SnapshotsDialog";
 import {
@@ -147,19 +133,14 @@ function applyTranscriptToMedia(
   };
 }
 
-interface ToolbarProps {
-  onFindClick?: () => void;
-}
-
 function recordingLabel(mode: RecordingMode) {
   if (mode === "voiceover") return "Voice over";
   if (mode === "screen") return "Screen recording";
   return "Camera recording";
 }
 
-export function Toolbar({ onFindClick }: ToolbarProps) {
+export function Toolbar() {
   const project = useProjectStore((s) => s.project);
-  const dirty = useProjectStore((s) => s.dirty);
   const filePath = useProjectStore((s) => s.filePath);
   const markSaved = useProjectStore((s) => s.markSaved);
 
@@ -172,8 +153,6 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   const setMediaLoading = useUIStore((s) => s.setMediaLoading);
   const setExportingProgress = useUIStore((s) => s.setExportingProgress);
   const setTranscribeProgress = useUIStore((s) => s.setTranscribeProgress);
-  const displayName = filePath?.split(/[\\/]/).pop() ?? `${project.name}.scribe`;
-
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<WhisperModel>("large-v3-turbo");
@@ -207,13 +186,14 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   /** Set to true before opening the model dialog when the user clicks Re-Transcribe. */
   const forceRetranscribeRef = useRef(false);
 
-  // toolbarBottomRef kept for potential future use
-  const toolbarBottomRef = useRef<HTMLDivElement>(null);
-
   /** True when at least one segment already has transcribed words. */
   const hasTranscript = project.segments.some((s) => s.words.length > 0);
 
-  async function handleOpen() {
+  const resetPlayer = useCallback(() => {
+    usePlayerStore.getState().reset();
+  }, []);
+
+  const handleOpen = useCallback(async () => {
     const path = await openDialog({
       multiple: false,
       filters: [{ name: "Media", extensions: MEDIA_EXTENSIONS }],
@@ -240,18 +220,14 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
     } finally {
       setMediaLoading(false);
     }
-  }
+  }, [setMediaLoading, pushToast, resetPlayer]);
 
-  async function handleAddClip() {
+  const handleAddClip = useCallback(async () => {
     const path = await openDialog({
       multiple: false,
       filters: [{ name: "Media", extensions: MEDIA_EXTENSIONS }],
     });
     if (typeof path !== "string") return;
-    await addClipToTimeline(path);
-  }
-
-  async function addClipToTimeline(path: string) {
     setMediaLoading(true);
     try {
       const before = useProjectStore.getState().project;
@@ -278,46 +254,50 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
     } finally {
       setMediaLoading(false);
     }
-  }
+  }, [setMediaLoading, pushToast]);
 
-  function resetPlayer() {
-    usePlayerStore.getState().reset();
-  }
-
-  function handleCloseProject() {
+  const handleCloseProject = useCallback(() => {
     replaceProjectBaseline(newProject("Untitled"), { dirty: false, filePath: null });
     resetPlayer();
     pushToast({ title: "Project closed" });
-  }
+  }, [pushToast, resetPlayer]);
 
-  function handleNewProject() {
+  const handleNewProject = useCallback(() => {
     replaceProjectBaseline(newProject("Untitled"), { dirty: false, filePath: null });
     resetPlayer();
-  }
+  }, [resetPlayer]);
 
-  async function handleOpenProject() {
+  const openProjectAtPath = useCallback(
+    async (path: string) => {
+      setMediaLoading(true);
+      try {
+        const loaded = await loadProject(path);
+        cacheProjectTranscripts(loaded);
+        replaceProjectBaseline(loaded, { dirty: false, filePath: path });
+        resetPlayer();
+        addRecentProject(path);
+        pushToast({ title: "Project opened", description: path });
+      } catch (err) {
+        pushToast({
+          title: "Failed to open project",
+          description: String(err),
+          variant: "destructive",
+        });
+      } finally {
+        setMediaLoading(false);
+      }
+    },
+    [setMediaLoading, pushToast, resetPlayer],
+  );
+
+  const handleOpenProject = useCallback(async () => {
     const path = await openDialog({
       multiple: false,
       filters: [{ name: "YusafCut project", extensions: ["scribe"] }],
     });
     if (typeof path !== "string") return;
-    setMediaLoading(true);
-    try {
-      const loaded = await loadProject(path);
-      cacheProjectTranscripts(loaded);
-      replaceProjectBaseline(loaded, { dirty: false, filePath: path });
-      resetPlayer();
-      pushToast({ title: "Project opened", description: path });
-    } catch (err) {
-      pushToast({
-        title: "Failed to open project",
-        description: String(err),
-        variant: "destructive",
-      });
-    } finally {
-      setMediaLoading(false);
-    }
-  }
+    await openProjectAtPath(path);
+  }, [openProjectAtPath]);
 
   async function ensureSelectedModelInstalled() {
     const info = await listModels();
@@ -357,7 +337,18 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
         translate: transcribeTranslate,
         diarize: transcribeDiarize,
       });
-      writeTranscriptCache(media, result.words);
+      let recordedWords = result.words;
+      try {
+        const silences = await detectPauses({
+          mediaPath: media.path,
+          noiseThreshold: -35,
+          minDuration: 0.5,
+        });
+        recordedWords = snapWordsToSilences(recordedWords, silences);
+      } catch {
+        /* non-fatal */
+      }
+      writeTranscriptCache(media, recordedWords);
       replaceProjectBaseline(
         {
           ...projectWithMedia,
@@ -365,7 +356,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
             {
               id: crypto.randomUUID(),
               mediaId: media.id,
-              words: result.words,
+              words: recordedWords,
               sourceIn: 0,
               sourceOut: media.duration,
             },
@@ -374,7 +365,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
         },
         { dirty: true, filePath: null },
       );
-      pushToast({ title: "Recording transcribed", description: `${result.words.length} words` });
+      pushToast({ title: "Recording transcribed", description: `${recordedWords.length} words` });
 
       // Auto-surface pauses for the recording too (best-effort, non-blocking).
       if (result.words.length > 0) {
@@ -431,16 +422,16 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
     }
   }
 
-  async function refreshModelList() {
+  const refreshModelList = useCallback(async () => {
     try {
       const info = await listModels();
       setInstalledModels(info);
     } catch {
       setInstalledModels([]);
     }
-  }
+  }, []);
 
-  async function handleTranscribe() {
+  const handleTranscribe = useCallback(async () => {
     const mediaIds = Array.from(new Set(project.segments.map((segment) => segment.mediaId)));
     if (mediaIds.length === 0) {
       pushToast({ title: "Open a video first", variant: "destructive" });
@@ -449,15 +440,15 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
     forceRetranscribeRef.current = false;
     await refreshModelList();
     setModelDialogOpen(true);
-  }
+  }, [project, pushToast, refreshModelList]);
 
-  async function handleReTranscribe() {
+  const handleReTranscribe = useCallback(async () => {
     const mediaIds = Array.from(new Set(project.segments.map((segment) => segment.mediaId)));
     if (mediaIds.length === 0) return;
     forceRetranscribeRef.current = true;
     await refreshModelList();
     setModelDialogOpen(true);
-  }
+  }, [project, refreshModelList]);
 
   /** Download a single model from within the dialog, updating inline progress. */
   async function handleDownloadModel(name: string) {
@@ -624,9 +615,11 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
           totalWords += existingWords.length;
           continue;
         }
-        const words =
-          cached ??
-          (
+        let words: Word[];
+        if (cached) {
+          words = cached; // cache already contains snapped timestamps
+        } else {
+          words = (
             await transcribe({
               mediaId,
               mediaPath: media.path,
@@ -638,6 +631,19 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
               diarize: transcribeDiarize,
             })
           ).words;
+          // Snap word boundaries to signal-level silence edges (best-effort —
+          // a silencedetect failure must never fail the transcription).
+          try {
+            const silences = await detectPauses({
+              mediaPath: media.path,
+              noiseThreshold: -35,
+              minDuration: 0.5,
+            });
+            words = snapWordsToSilences(words, silences);
+          } catch {
+            /* non-fatal */
+          }
+        }
         writeTranscriptCache(media, words);
         nextProject = applyTranscriptToMedia(nextProject, mediaId, words, force);
         totalWords += words.length;
@@ -685,6 +691,7 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
     try {
       await saveProject(project, path);
       markSaved(path);
+      addRecentProject(path);
       pushToast({ title: "Saved" });
     } catch (err) {
       pushToast({
@@ -797,122 +804,73 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
   }, [project, pushToast]);
 
   useEffect(() => {
+    const onTranscribe = () => {
+      if (hasTranscript) {
+        void handleReTranscribe();
+      } else {
+        void handleTranscribe();
+      }
+    };
+    const onOpen = () => void handleOpen();
+    const onAddClip = () => void handleAddClip();
+    const onRecord = () => setRecordDialogOpen(true);
+    const onMusic = () => setMusicDialogOpen(true);
+    const onSnapshots = () => setSnapshotsDialogOpen(true);
+    const onExportCaptions = () => void handleExportCaptions();
+    const onNewProject = () => handleNewProject();
+    const onOpenProject = () => void handleOpenProject();
+    const onOpenProjectPath = (e: Event) => {
+      const path = (e as CustomEvent<{ path: string }>).detail?.path;
+      if (path) void openProjectAtPath(path);
+    };
+    const onCloseProject = () => handleCloseProject();
+
     window.addEventListener("yusafcut:save", handleSave);
     window.addEventListener("yusafcut:export", handleExport);
+    window.addEventListener("yusafcut:transcribe", onTranscribe);
+    window.addEventListener("yusafcut:open", onOpen);
+    window.addEventListener("yusafcut:add-clip", onAddClip);
+    window.addEventListener("yusafcut:record", onRecord);
+    window.addEventListener("yusafcut:music", onMusic);
+    window.addEventListener("yusafcut:snapshots", onSnapshots);
+    window.addEventListener("yusafcut:export-captions", onExportCaptions);
+    window.addEventListener("yusafcut:new-project", onNewProject);
+    window.addEventListener("yusafcut:open-project", onOpenProject);
+    window.addEventListener("yusafcut:open-project-path", onOpenProjectPath);
+    window.addEventListener("yusafcut:close-project", onCloseProject);
+
     return () => {
       window.removeEventListener("yusafcut:save", handleSave);
       window.removeEventListener("yusafcut:export", handleExport);
+      window.removeEventListener("yusafcut:transcribe", onTranscribe);
+      window.removeEventListener("yusafcut:open", onOpen);
+      window.removeEventListener("yusafcut:add-clip", onAddClip);
+      window.removeEventListener("yusafcut:record", onRecord);
+      window.removeEventListener("yusafcut:music", onMusic);
+      window.removeEventListener("yusafcut:snapshots", onSnapshots);
+      window.removeEventListener("yusafcut:export-captions", onExportCaptions);
+      window.removeEventListener("yusafcut:new-project", onNewProject);
+      window.removeEventListener("yusafcut:open-project", onOpenProject);
+      window.removeEventListener("yusafcut:open-project-path", onOpenProjectPath);
+      window.removeEventListener("yusafcut:close-project", onCloseProject);
     };
-  }, [handleSave, handleExport]);
+  }, [
+    handleSave,
+    handleExport,
+    handleTranscribe,
+    handleReTranscribe,
+    handleExportCaptions,
+    handleNewProject,
+    handleOpenProject,
+    openProjectAtPath,
+    handleCloseProject,
+    handleOpen,
+    handleAddClip,
+    hasTranscript,
+  ]);
 
   return (
-    <div className="editor-toolbar">
-      <div className="editor-toolbar-top">
-        <div className="toolbar-title">
-          <span>{displayName}</span>
-          <span>{dirty ? "unsaved edits" : "no edits"}</span>
-        </div>
-
-        <div className="toolbar-export">
-          <span className="toolbar-duration">{formatDuration(totalDuration(project))}</span>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleExportCaptions}
-            className="h-8 gap-2 rounded-md px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
-            title="Export captions (.srt or .vtt)"
-          >
-            <Captions className="h-4 w-4" /> Captions
-          </Button>
-          <Button
-            size="sm"
-            onClick={handleExport}
-            className="h-8 gap-2 rounded-md px-3 font-semibold"
-          >
-            <Download className="h-4 w-4" /> Export .mp4
-          </Button>
-        </div>
-      </div>
-
-      <div className="editor-toolbar-bottom" ref={toolbarBottomRef}>
-        {/* ── Left: file operations ── */}
-        <div className="tool-group">
-          <Button size="sm" variant="ghost" className="tool-button" onClick={handleOpen}>
-            <FolderOpen className="h-4 w-4" /> Open
-          </Button>
-          <Button size="sm" variant="ghost" className="tool-button" onClick={handleSave}>
-            <Save className="h-4 w-4" /> Save{dirty ? " *" : ""}
-          </Button>
-          {/* File ▾ — project management, snapshots, and lifecycle */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="ghost" className="tool-button">
-                File <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-[180px]">
-              <DropdownMenuItem onClick={handleAddClip}>
-                <Scissors className="h-4 w-4 mr-2" /> Add Clip
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleNewProject}>
-                <FilePlus2 className="h-4 w-4 mr-2" /> New Project
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => void handleOpenProject()}>
-                <FolderOpen className="h-4 w-4 mr-2" /> Open Project
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setSnapshotsDialogOpen(true)}>
-                <History className="h-4 w-4 mr-2" /> Snapshots
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={handleCloseProject}
-              >
-                <Power className="h-4 w-4 mr-2" /> Close project
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-
-        <Toolbox onFindClick={onFindClick} />
-
-        {/* ── Right: transcribe + capture + project lifecycle ── */}
-        <div className="tool-group">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="tool-button tool-button-primary"
-            title={
-              hasTranscript
-                ? "Clear existing transcript and re-run Whisper from scratch"
-                : "Transcribe audio with Whisper"
-            }
-            onClick={hasTranscript ? handleReTranscribe : handleTranscribe}
-          >
-            <MicVocal className="h-4 w-4" />
-            {hasTranscript ? "Re-Transcribe" : "Transcribe"}
-          </Button>
-          {/* Capture ▾ — recording and audio inputs */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="ghost" className="tool-button">
-                Capture <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-[160px]">
-              <DropdownMenuItem onClick={() => setRecordDialogOpen(true)}>
-                <Radio className="h-4 w-4 mr-2" /> Record
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setMusicDialogOpen(true)}>
-                <Music className="h-4 w-4 mr-2" /> Music tracks
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-
+    <>
       <Dialog
         open={recordDialogOpen}
         onOpenChange={(open) => {
@@ -1451,6 +1409,6 @@ export function Toolbar({ onFindClick }: ToolbarProps) {
 
       <MusicTracksDialog open={musicDialogOpen} onOpenChange={setMusicDialogOpen} />
       <SnapshotsDialog open={snapshotsDialogOpen} onOpenChange={setSnapshotsDialogOpen} />
-    </div>
+    </>
   );
 }

@@ -114,12 +114,19 @@ interface TranscriptEditorProps {
   findOpen?: boolean;
   onFindOpen?: () => void;
   onFindClose?: () => void;
+  /**
+   * Transcribe mode: click-to-seek still works, but destructive interactions
+   * (pause deletion, filler removal) are disabled — the transcript is for
+   * review only until the user switches to Edit mode.
+   */
+  readOnly?: boolean;
 }
 
 export function TranscriptEditor({
   findOpen = false,
   onFindOpen,
   onFindClose,
+  readOnly = false,
 }: TranscriptEditorProps) {
   const project = useProjectStore((s) => s.project);
   const deleteWordsByText = useProjectStore((s) => s.deleteWordsByText);
@@ -181,6 +188,7 @@ export function TranscriptEditor({
       // Pause badge click: remove that pause by its stable id.
       const pauseEl = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-pause]");
       if (pauseEl && containerRef.current?.contains(pauseEl)) {
+        if (readOnly) return;
         const pauseId = pauseEl.dataset.pauseId;
         if (pauseId) void withProcessingEdit("Updating timeline…", () => deletePauseById(pauseId));
         return;
@@ -196,19 +204,20 @@ export function TranscriptEditor({
         new CustomEvent("yusafcut:seek-output", { detail: { time: mapped.outputTime, play: true } }),
       );
     },
-    [project, deletePauseById, withProcessingEdit],
+    [project, deletePauseById, withProcessingEdit, readOnly],
   );
 
   // Wire up keyboard deletion for selected pause nodes (fired by PauseNode's
   // addKeyboardShortcuts).  The custom event carries the stable pauseId.
   useEffect(() => {
+    if (readOnly) return;
     function onDeletePause(e: Event) {
       const pauseId = (e as CustomEvent<{ pauseId: string }>).detail.pauseId;
       if (pauseId) void withProcessingEdit("Updating timeline…", () => deletePauseById(pauseId));
     }
     window.addEventListener("yusafcut:delete-pause", onDeletePause);
     return () => window.removeEventListener("yusafcut:delete-pause", onDeletePause);
-  }, [deletePauseById, withProcessingEdit]);
+  }, [deletePauseById, withProcessingEdit, readOnly]);
 
   // Re-render the TipTap document whenever the EDL or pause tokens change.
   // Pauses marked as `deleted` are omitted from the rebuild so they disappear
@@ -471,8 +480,12 @@ export function TranscriptEditor({
           variant="outline"
           className="h-7 gap-1.5 text-xs"
           onClick={handleRemoveAllFillers}
-          disabled={fillerCount === 0}
-          title="Delete every filler word (um, uh, like, …)"
+          disabled={fillerCount === 0 || readOnly}
+          title={
+            readOnly
+              ? "Switch to Edit mode to remove fillers"
+              : "Delete every filler word (um, uh, like, …)"
+          }
         >
           <Eraser className="h-3.5 w-3.5" />
           Remove fillers

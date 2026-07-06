@@ -155,6 +155,25 @@ Delete models from there to free disk space.
 The bundled `whisper-cli-aarch64-apple-darwin` is a real ARM64 binary — it runs natively
 on the Neural Engine / Metal for fast transcription.
 
+It must be recent enough to accept the dot-form DTW presets (`--dtw large.v3`,
+`--dtw large.v3.turbo`) used for word-timestamp refinement. Verify with:
+
+```bash
+./src-tauri/binaries/whisper-cli-aarch64-apple-darwin --help 2>&1 | grep -i dtw
+```
+
+Older binaries still work — the app detects the `unknown DTW preset` rejection at
+runtime and retries the transcription without DTW refinement. To rebuild from
+current whisper.cpp with Core ML:
+
+```bash
+git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git
+cd whisper.cpp
+cmake -B build -DWHISPER_COREML=1 -DWHISPER_COREML_ALLOW_FALLBACK=1
+cmake --build build -j --config Release
+cp build/bin/whisper-cli <repo>/src-tauri/binaries/whisper-cli-aarch64-apple-darwin
+```
+
 ### Media files are referenced, not copied
 
 YusafCut stores the **path** to your original video, not a copy. Don't move or rename

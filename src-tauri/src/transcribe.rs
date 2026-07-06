@@ -38,6 +38,15 @@ struct WhisperToken {
     text: String,
     offsets: WhisperOffsets,
     p: f64, // probability
+    /// DTW-refined timestamp in centiseconds (10 ms units). Emitted by
+    /// whisper-cli when run with `--dtw`; -1 (or absent) means unavailable.
+    /// Marks the END boundary of the token's audio.
+    #[serde(default = "default_t_dtw")]
+    t_dtw: i64,
+}
+
+fn default_t_dtw() -> i64 {
+    -1
 }
 
 /// Parse whisper.cpp's full JSON output into our `Word` list, dropping pure
@@ -45,18 +54,42 @@ struct WhisperToken {
 pub fn parse_whisper_json(json: &str) -> Result<Vec<Word>> {
     let parsed: WhisperJson = serde_json::from_str(json).context("invalid whisper JSON")?;
     let mut words = Vec::new();
+    // t_dtw marks where each token's audio ENDS, so a word spans from the
+    // previous token's boundary to its own. Track the boundary across all
+    // tokens — including skipped punctuation — so the next word starts where
+    // the last acoustic token actually ended.
+    let mut prev_dtw_ms: Option<u64> = None;
     for seg in parsed.transcription {
         for tok in seg.tokens {
+            let dtw_ms = if tok.t_dtw >= 0 {
+                Some(tok.t_dtw as u64 * 10)
+            } else {
+                None
+            };
             let text = tok.text.trim().to_string();
-            // Skip Whisper special tokens like <|startoftranscript|>, [BLANK_AUDIO], etc.
-            if text.is_empty() || text.starts_with("<|") || text.starts_with('[') {
+            // Skip Whisper special tokens like <|startoftranscript|>,
+            // [BLANK_AUDIO], and punctuation-only atoms.
+            let skip = text.is_empty()
+                || text.starts_with("<|")
+                || text.starts_with('[')
+                || text.chars().all(|c| !c.is_alphanumeric());
+            if skip {
+                if let Some(d) = dtw_ms {
+                    prev_dtw_ms = Some(d);
+                }
                 continue;
             }
-            // Skip leading-only-punctuation tokens — whisper emits these as separate atoms.
-            if text.chars().all(|c| !c.is_alphanumeric()) {
-                continue;
+            let (fb_start, fb_end) = token_offsets_ms(&seg.offsets, &tok.offsets);
+            let (start_ms, end_ms) = match dtw_ms {
+                Some(dtw_end) => {
+                    let start = prev_dtw_ms.unwrap_or(fb_start).min(dtw_end);
+                    (start, dtw_end.max(start + 1))
+                }
+                None => (fb_start, fb_end),
+            };
+            if let Some(d) = dtw_ms {
+                prev_dtw_ms = Some(d);
             }
-            let (start_ms, end_ms) = token_offsets_ms(&seg.offsets, &tok.offsets);
             words.push(Word {
                 id: Uuid::new_v4().to_string(),
                 text,
@@ -159,6 +192,97 @@ mod tests {
         assert!((words[0].end - 30.5).abs() < 1e-9);
         assert_eq!(words[1].text, "words");
         assert!((words[1].start - 30.6).abs() < 1e-9);
+    }
+
+    #[test]
+    fn prefers_dtw_timestamps_when_present() {
+        // t_dtw is in centiseconds and marks the END of each token.
+        // Word 1: start = offsets fallback (no previous boundary), end = 0.5 s.
+        // Word 2: start = word 1's boundary (0.5 s), end = 1.1 s.
+        let json = r#"{
+            "transcription": [
+              {
+                "text": " hello world",
+                "offsets": {"from": 0, "to": 1500},
+                "tokens": [
+                  {"text": " hello", "offsets": {"from": 0, "to": 400}, "p": 0.99, "t_dtw": 50},
+                  {"text": " world", "offsets": {"from": 600, "to": 1100}, "p": 0.95, "t_dtw": 110}
+                ]
+              }
+            ]
+        }"#;
+        let words = parse_whisper_json(json).unwrap();
+        assert_eq!(words.len(), 2);
+        assert!((words[0].start - 0.0).abs() < 1e-9);
+        assert!((words[0].end - 0.5).abs() < 1e-9);
+        assert!((words[1].start - 0.5).abs() < 1e-9);
+        assert!((words[1].end - 1.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn falls_back_to_offsets_when_t_dtw_negative_or_absent() {
+        let json = r#"{
+            "transcription": [
+              {
+                "text": " hello world",
+                "offsets": {"from": 0, "to": 1500},
+                "tokens": [
+                  {"text": " hello", "offsets": {"from": 0, "to": 500}, "p": 0.99, "t_dtw": -1},
+                  {"text": " world", "offsets": {"from": 600, "to": 1100}, "p": 0.95}
+                ]
+              }
+            ]
+        }"#;
+        let words = parse_whisper_json(json).unwrap();
+        assert_eq!(words.len(), 2);
+        assert!((words[0].start - 0.0).abs() < 1e-9);
+        assert!((words[0].end - 0.5).abs() < 1e-9);
+        assert!((words[1].start - 0.6).abs() < 1e-9);
+        assert!((words[1].end - 1.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn skipped_punctuation_tokens_still_advance_the_dtw_boundary() {
+        // The "," token is dropped from output but its t_dtw (0.7 s) becomes
+        // the start boundary of the following word.
+        let json = r#"{
+            "transcription": [
+              {
+                "text": " hi, there",
+                "offsets": {"from": 0, "to": 2000},
+                "tokens": [
+                  {"text": " hi", "offsets": {"from": 0, "to": 300}, "p": 0.99, "t_dtw": 40},
+                  {"text": ",", "offsets": {"from": 300, "to": 400}, "p": 0.99, "t_dtw": 70},
+                  {"text": " there", "offsets": {"from": 400, "to": 900}, "p": 0.95, "t_dtw": 120}
+                ]
+              }
+            ]
+        }"#;
+        let words = parse_whisper_json(json).unwrap();
+        assert_eq!(words.len(), 2);
+        assert!((words[1].start - 0.7).abs() < 1e-9);
+        assert!((words[1].end - 1.2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn non_monotonic_dtw_is_clamped_to_a_positive_duration() {
+        // Second token's t_dtw (0.4 s) is BEFORE the previous boundary (0.5 s):
+        // start is clamped down to the token's own end, then end = start + 1 ms.
+        let json = r#"{
+            "transcription": [
+              {
+                "text": " a b",
+                "offsets": {"from": 0, "to": 1000},
+                "tokens": [
+                  {"text": " aa", "offsets": {"from": 0, "to": 300}, "p": 0.99, "t_dtw": 50},
+                  {"text": " bb", "offsets": {"from": 300, "to": 600}, "p": 0.95, "t_dtw": 40}
+                ]
+              }
+            ]
+        }"#;
+        let words = parse_whisper_json(json).unwrap();
+        assert_eq!(words.len(), 2);
+        assert!(words[1].end > words[1].start);
     }
 
     #[test]
