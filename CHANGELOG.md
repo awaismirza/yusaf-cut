@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.0] — 2026-07-06
+
+### Added
+- **DTW word-timestamp refinement for `large-v3` and `large-v3-turbo`** — the transcription pipeline now passes `--dtw large.v3` / `--dtw large.v3.turbo` and consumes the DTW-refined `t_dtw` token timestamps, bringing per-word accuracy from ~100 ms to ~20 ms. Fixes click-to-seek landing off-target, playback-highlight lag, and cumulative drift on long videos.
+- **Silence-boundary snapping** — freshly transcribed word boundaries that fall inside an ffmpeg-detected silence are snapped to the silence edge (max 120 ms adjustment), so export cuts land in silence instead of clipping syllables. New pure module `src/lib/timestampSnap.ts`.
+- Manual sync-accuracy test recipe in `docs/manual-test.md`.
+
+### Changed
+- `parse_whisper_json` prefers DTW timestamps when present and falls back to standard offsets, so older `whisper-cli` builds keep working.
+- If the bundled `whisper-cli` rejects the `--dtw` preset, transcription retries once without DTW instead of failing.
+
+### Fixed
+- **Root cause of the v4.3.0 "large-v3 DTW failure"** — the app passed hyphenated preset names (`--dtw large-v3`) where whisper.cpp expects dot-separated ones (`--dtw large.v3`). The bundled binary supported DTW for the large models all along; with the correct preset names all six models now get refinement.
+
 ## [4.4.0] — 2026-06-28
 
 ### Added

@@ -111,6 +111,16 @@ ML + Metal acceleration. Key CLI flags for timestamp accuracy:
 - `--word-thold 0.01` — keep all tokens even with low probability
 - `--max-len 0` — unbounded segment length; prevents timestamp compression drift
 - `--best-of 5 --beam-size 5` — beam search for transcript quality
+- `--dtw <preset>` — DTW cross-attention timestamp refinement, all models
+  including `large.v3` / `large.v3.turbo` (dot-form preset names; the parser
+  prefers the emitted `t_dtw` values and falls back to standard offsets)
+
+If whisper-cli rejects the DTW preset (stale binary), the transcription is
+retried once without `--dtw` rather than failing.
+
+After transcription, word boundaries are snapped to ffmpeg-silencedetect
+edges by `src/lib/timestampSnap.ts` (max 120 ms adjustment) so cuts always
+land in silence, never mid-word.
 
 WhisperKit (ANE) was removed in v3.2.0 because quantized models produced
 inaccurate word timestamps causing video/text drift. To restore it, run:
