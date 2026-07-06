@@ -10,6 +10,7 @@
  */
 
 import { useEffect } from "react";
+import { useEditorUiStore } from "@/stores/editorUiStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useProjectStore, useTemporalProjectStore } from "@/stores/projectStore";
 import { useUIStore } from "@/stores/uiStore";
@@ -158,6 +159,8 @@ export function useKeyboardShortcuts() {
       }
 
       if (mod && (e.key === "Backspace" || e.key === "Delete")) {
+        // Transcribe mode is review-only: no destructive edits from the keyboard.
+        if (useEditorUiStore.getState().workspaceMode === "transcribe") return;
         const player = usePlayerStore.getState();
         const projectStore = useProjectStore.getState();
         const ui = useUIStore.getState();
@@ -192,6 +195,8 @@ export function useKeyboardShortcuts() {
       }
 
       if (!mod && (e.key === "Backspace" || e.key === "Delete") && !inTextField) {
+        // Transcribe mode is review-only: no destructive edits from the keyboard.
+        if (useEditorUiStore.getState().workspaceMode === "transcribe") return;
         const player = usePlayerStore.getState();
         const projectStore = useProjectStore.getState();
         const ui = useUIStore.getState();

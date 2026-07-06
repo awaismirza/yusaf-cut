@@ -47,3 +47,19 @@ release. The whole loop should take ~10 minutes on a 5-minute test clip.
 
 - [ ] 5-minute clip transcribes in < 60s with `large-v3-turbo`
 - [ ] 5-minute edit exports (re-encode-all) in < 30s
+
+## Word-sync accuracy (DTW pipeline, v4.5.0)
+
+Transcribe a real clip ≥ 10 minutes using `large-v3-turbo`, then verify:
+
+- [ ] Click a word near the START of the video → playback begins within
+      ±50 ms of that word's onset
+- [ ] Click words in the MIDDLE and at the very END → same accuracy;
+      **no drift growth** toward the end
+- [ ] During playback, the highlighted word matches what is being spoken
+- [ ] Delete a sentence mid-video, export, and confirm the cut does not clip
+      syllables
+- [ ] DTW interpretation check: if every word highlight/seek consistently
+      lands one word LATE, the `t_dtw` boundary interpretation in
+      `parse_whisper_json` must be flipped (word start = own `t_dtw`,
+      end = next token's) — fix and re-verify
