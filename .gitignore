@@ -61,6 +61,6 @@ models/
 src-tauri/*.provisionprofile
 *.xcarchive
 
-# Misc
-.env
-.env.local
+graphify-out/manifest.json
+graphify-out/cost.json
+graphify-out/cache/
