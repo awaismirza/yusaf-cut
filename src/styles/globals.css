@@ -970,15 +970,15 @@
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   RIGHT TOOL RAIL — vertical icon strip
+   LEFT TOOL RAIL — vertical icon strip
    ════════════════════════════════════════════════════════════════════════ */
-.right-editor-sidebar {
+.editor-sidebar {
   display: flex;
   flex-direction: row;
   flex-shrink: 0;
   height: 100%;
 }
-.right-tool-rail {
+.tool-rail {
   width: 52px;
   flex-shrink: 0;
   display: flex;
@@ -987,14 +987,14 @@
   padding: 8px 0;
   gap: 2px;
   background: hsl(30 5% 9%);
-  border-left: 1px solid hsl(var(--border));
+  border-right: 1px solid hsl(var(--border));
   overflow-y: auto;
   scrollbar-width: none;
 }
-.right-tool-rail::-webkit-scrollbar {
+.tool-rail::-webkit-scrollbar {
   display: none;
 }
-.right-tool-rail-btn {
+.tool-rail-btn {
   position: relative;
   width: 44px;
   height: 44px;
@@ -1011,39 +1011,39 @@
     color 80ms ease;
   flex-shrink: 0;
 }
-.right-tool-rail-btn:hover {
+.tool-rail-btn:hover {
   background: hsl(var(--accent));
   color: hsl(var(--foreground));
 }
-.right-tool-rail-btn:focus-visible {
+.tool-rail-btn:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: -2px;
 }
-.right-tool-rail-btn.is-active {
+.tool-rail-btn.is-active {
   color: hsl(var(--primary));
   background: hsl(var(--primary) / 0.12);
 }
-.right-tool-rail-btn.is-active::before {
+.tool-rail-btn.is-active::before {
   content: "";
   position: absolute;
-  left: 0;
+  right: 0;
   top: 10px;
   bottom: 10px;
   width: 2px;
   background: hsl(var(--primary));
-  border-radius: 0 2px 2px 0;
+  border-radius: 2px 0 0 2px;
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   RIGHT INSPECTOR PANEL
+   LEFT INSPECTOR PANEL
    ════════════════════════════════════════════════════════════════════════ */
-.right-inspector-panel {
+.inspector-panel {
   overflow: hidden;
   transition: width 150ms ease;
   display: flex;
   flex-direction: column;
   background: hsl(30 4% 14%);
-  border-left: 1px solid hsl(var(--border));
+  border-right: 1px solid hsl(var(--border));
   flex-shrink: 0;
 }
 .inspector-panel-header {

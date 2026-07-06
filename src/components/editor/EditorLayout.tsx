@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { TopBar } from "./TopBar";
 import { PreviewWorkspace } from "./PreviewWorkspace";
 import { BottomTimeline } from "./BottomTimeline";
-import { RightEditorSidebar } from "./right-sidebar/RightEditorSidebar";
+import { EditorSidebar } from "./sidebar/EditorSidebar";
 import { TranscriptEditor } from "@/components/TranscriptEditor/TranscriptEditor";
 import { StatusBar } from "@/components/StatusBar/StatusBar";
 import { Toolbar } from "@/components/Toolbar/Toolbar";
@@ -77,6 +77,8 @@ export function EditorLayout() {
       <TopBar />
 
       <div className="flex flex-1 overflow-hidden">
+        <EditorSidebar />
+
         {hasTranscript && (
           <>
             <main className="relative flex min-w-0 flex-1 overflow-hidden border-r border-border">
@@ -129,21 +131,19 @@ export function EditorLayout() {
               {hasMedia ? (
                 <>
                   Click{" "}
-                  <span className="font-semibold text-foreground/80">Transcript</span> in the
-                  right panel to transcribe and start editing
+                  <span className="font-semibold text-foreground/80">Transcribe</span> in the
+                  left panel to transcribe and start editing
                 </>
               ) : (
                 <>
                   Use the{" "}
                   <span className="font-semibold text-foreground/80">Media</span> panel on the
-                  right to open a video file
+                  left, or the Project menu, to open a video file
                 </>
               )}
             </p>
           )}
         </div>
-
-        <RightEditorSidebar />
       </div>
 
       {hasMedia && <BottomTimeline />}
