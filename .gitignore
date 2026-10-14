@@ -44,9 +44,12 @@ coverage/
 *.app
 *.app.tar.gz
 
-# Sidecar build outputs + venv
+# Python venv + sidecar build outputs
+.venv
+.venv/
 sidecars/**/dist/
 sidecars/**/build/
+sidecars/**/.venv
 sidecars/**/.venv/
 sidecars/**/__pycache__/
 sidecars/**/*.egg-info/

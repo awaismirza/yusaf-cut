@@ -2,7 +2,7 @@
 name = "mlx-llm"
 version = "1.0.0"
 description = "MLX-powered LLM sidecar for YusafCut — runs fully on-device via Apple MLX"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 dependencies = [
     "mlx-lm>=0.19",
     "pydantic>=2.7",

@@ -25,13 +25,22 @@ import sys
 from pydantic import ValidationError
 
 from .commands import broll, summarise
-from .schemas import BrollResult, LLMRequest, LLMResponseErr, LLMResponseOk, SummariseResult
+from .schemas import (
+    BrollPayload,
+    BrollResult,
+    LLMRequest,
+    LLMResponseErr,
+    LLMResponseOk,
+    SummarisePayload,
+    SummariseResult,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def _handle(line: str) -> str:
     """Parse one request line, dispatch, and return a response JSON string."""
+    data = None
     # --- parse ---
     try:
         data = json.loads(line)
@@ -44,10 +53,12 @@ def _handle(line: str) -> str:
     # --- dispatch ---
     try:
         if request.command == "summarise":
-            result: SummariseResult = summarise(request.payload)
+            payload = request.payload if isinstance(request.payload, SummarisePayload) else SummarisePayload.model_validate(request.payload)
+            result: SummariseResult = summarise(payload)
             return LLMResponseOk(id=request.id, result=result).model_dump_json()
         elif request.command == "broll":
-            broll_result: BrollResult = broll(request.payload)
+            b_payload = request.payload if isinstance(request.payload, BrollPayload) else BrollPayload.model_validate(request.payload)
+            broll_result: BrollResult = broll(b_payload)
             return LLMResponseOk(id=request.id, result=broll_result).model_dump_json()
         else:
             return LLMResponseErr(

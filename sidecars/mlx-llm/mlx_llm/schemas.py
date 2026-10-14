@@ -96,8 +96,8 @@ class BrollPayload(BaseModel):
 
 class LLMRequest(BaseModel):
     id: str
-    command: Literal["summarise", "broll"]
-    payload: Union[SummarisePayload, BrollPayload]
+    command: str
+    payload: Any = Field(default_factory=dict)
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -141,4 +141,4 @@ class LLMResponseErr(BaseModel):
     error: str
 
 
-LLMResponse = LLMResponseOk | LLMResponseErr
+LLMResponse = Union[LLMResponseOk, LLMResponseErr]

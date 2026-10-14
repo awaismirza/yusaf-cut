@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 # the sidecar doesn't reload weights on every request.
 # ---------------------------------------------------------------------------
 
+try:
+    from mlx_lm import generate  # type: ignore[import]
+except ImportError:
+    generate = None
+
 _cache: dict[str, object] = {}
 
 
@@ -56,7 +61,7 @@ _SYSTEM_PROMPT = textwrap.dedent("""\
     in seconds taken verbatim from the transcript timestamps.
 
     Reply ONLY with a JSON array — no prose, no markdown fences — of objects:
-    [{"title": "...", "start_seconds": 0.0}, ...]
+    [{{"title": "...", "start_seconds": 0.0}}, ...]
 
     Rules:
     - Produce exactly {n} chapters.
@@ -170,8 +175,6 @@ def summarise(payload: SummarisePayload) -> SummariseResult:
             f"<|{m['role']}|>\n{m['content']}" for m in messages
         ) + "\n<|assistant|>\n"
 
-    from mlx_lm import generate  # type: ignore[import]
-
     logger.info(
         "Generating %d chapters for transcript of length %d chars …",
         payload.n_chapters,
@@ -206,10 +209,10 @@ _BROLL_SYSTEM = textwrap.dedent("""\
 
     Reply ONLY with a JSON array — no prose, no markdown fences:
     [
-      {
+      {{
         "query":      "stock footage search query (4-8 words)",
         "rationale":  "one sentence: why this shot suits the content"
-      },
+      }},
       …
     ]
 
@@ -305,8 +308,6 @@ def broll(payload: BrollPayload) -> BrollResult:
         prompt = "\n".join(
             f"<|{m['role']}|>\n{m['content']}" for m in messages
         ) + "\n<|assistant|>\n"
-
-    from mlx_lm import generate  # type: ignore[import]
 
     logger.info(
         "Generating %d b-roll suggestions for span %.1f–%.1f s …",

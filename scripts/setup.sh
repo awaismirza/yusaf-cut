@@ -74,36 +74,169 @@ info "Running npm install…"
 npm install --prefix "$REPO" --silent
 ok "npm packages installed"
 
-# ── 3. Python venv for MLX sidecar ────────────────────────────────────────────
-header "3 / 6  Python sidecar (mlx-llm)"
-VENV="$SIDECAR/.venv"
-if ! command -v python3 >/dev/null 2>&1; then
-  warn "python3 not found — MLX AI features (chapter detection, b-roll) disabled."
-  warn "Install Python 3.11+ from https://python.org to enable them."
-else
-  PY_VER=$(python3 --version 2>&1 | awk '{print $2}')
-  PY_MAJOR="${PY_VER%%.*}"
-  PY_MINOR=$(echo "$PY_VER" | cut -d. -f2)
-  if [[ "$PY_MAJOR" -lt 3 ]] || { [[ "$PY_MAJOR" -eq 3 ]] && [[ "$PY_MINOR" -lt 11 ]]; }; then
-    warn "Python $PY_VER found — 3.11+ required for mlx-lm."
-    warn "MLX AI features will not work until Python is upgraded."
-  else
-    ok "Python $PY_VER"
-    if [[ -x "$VENV/bin/python" ]]; then
-      info "Venv already exists — upgrading packages…"
-      "$VENV/bin/pip" install -q -e "$SIDECAR"
-      ok "Python venv up to date"
-    else
-      info "Creating venv at sidecars/mlx-llm/.venv …"
-      python3 -m venv "$VENV"
-      info "Installing mlx_llm + dependencies (pydantic, mlx-lm)…"
-      info "Note: mlx-lm is ~200 MB on first install."
-      "$VENV/bin/pip" install -q --upgrade pip
-      "$VENV/bin/pip" install -q -e "$SIDECAR"
-      ok "Python venv created and packages installed"
+# ── 3. Python environment (Python 3.9.6 — Conda or venv) ──────────────────────
+header "3 / 6  Python environment (Python 3.9.6)"
+TARGET_PY_VER="3.9.6"
+VENV="$REPO/.venv"
+ENV_TYPE=""
+
+# Helper to verify if a python command runs target version
+is_py396() {
+  local cmd="$1"
+  if [[ -x "$cmd" ]] || command -v "$cmd" >/dev/null 2>&1; then
+    local ver
+    ver=$("$cmd" --version 2>&1 | awk '{print $2}')
+    if [[ "$ver" == "$TARGET_PY_VER"* ]]; then
+      return 0
     fi
   fi
+  return 1
+}
+
+# Helper to find an existing Python 3.9.6 executable
+find_system_py396() {
+  local candidates=(
+    "python3.9"
+    "python3"
+    "/usr/bin/python3"
+    "/Library/Developer/CommandLineTools/usr/bin/python3"
+    "/Applications/Xcode.app/Contents/Developer/usr/bin/python3"
+    "/opt/homebrew/bin/python3.9"
+    "/opt/homebrew/opt/python@3.9/bin/python3.9"
+    "/usr/local/bin/python3.9"
+    "$HOME/.pyenv/versions/$TARGET_PY_VER/bin/python"
+    "$HOME/.pyenv/shims/python3.9"
+  )
+  for c in "${candidates[@]}"; do
+    if is_py396 "$c"; then
+      if command -v "$c" >/dev/null 2>&1; then
+        command -v "$c"
+      else
+        echo "$c"
+      fi
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Detect conda executable
+find_conda() {
+  local conda_paths=(
+    "conda"
+    "/opt/homebrew/Caskroom/miniconda/base/bin/conda"
+    "$HOME/miniconda3/bin/conda"
+    "$HOME/miniconda/bin/conda"
+    "$HOME/anaconda3/bin/conda"
+    "/opt/homebrew/bin/conda"
+    "/usr/local/bin/conda"
+  )
+  for cp in "${conda_paths[@]}"; do
+    if command -v "$cp" >/dev/null 2>&1 || [[ -x "$cp" ]]; then
+      if command -v "$cp" >/dev/null 2>&1; then
+        command -v "$cp"
+      else
+        echo "$cp"
+      fi
+      return 0
+    fi
+  done
+  return 1
+}
+
+CONDA_CMD="$(find_conda || true)"
+
+if [[ -n "$CONDA_CMD" ]]; then
+  info "Conda detected: $CONDA_CMD"
+  # Setup conda hook for bash so 'conda activate' works in subshell
+  eval "$("$CONDA_CMD" shell.bash hook 2>/dev/null)" || true
+
+  # Check if existing .venv already has Python 3.9.6
+  RECREATE=true
+  if [[ -x "$VENV/bin/python" ]] && is_py396 "$VENV/bin/python"; then
+    RECREATE=false
+    ok "Conda environment at $VENV already has Python $TARGET_PY_VER"
+  fi
+
+  if [[ "$RECREATE" == "true" ]]; then
+    if [[ -d "$VENV" ]]; then
+      info "Existing .venv does not match Python $TARGET_PY_VER — recreating with conda…"
+      rm -rf "$VENV"
+    else
+      info "Creating conda environment at $VENV with python=$TARGET_PY_VER…"
+    fi
+    "$CONDA_CMD" create -y -p "$VENV" python="$TARGET_PY_VER"
+  fi
+
+  # Activate conda environment
+  conda activate "$VENV"
+  ACT_VER=$("$VENV/bin/python" --version 2>&1 | awk '{print $2}')
+  ok "Conda environment activated (Python $ACT_VER)"
+  ENV_TYPE="conda"
+
+else
+  info "Conda not found — using Python venv flow"
+  SYS_PY396="$(find_system_py396 || true)"
+
+  if [[ -z "$SYS_PY396" ]]; then
+    info "Python $TARGET_PY_VER not found on system — attempting installation…"
+    if command -v pyenv >/dev/null 2>&1; then
+      info "Installing Python $TARGET_PY_VER via pyenv…"
+      pyenv install -s "$TARGET_PY_VER"
+      SYS_PY396="$HOME/.pyenv/versions/$TARGET_PY_VER/bin/python"
+    elif command -v brew >/dev/null 2>&1; then
+      info "Installing python@3.9 via Homebrew…"
+      brew install python@3.9 || true
+      SYS_PY396="$(find_system_py396 || true)"
+    fi
+  fi
+
+  if [[ -z "$SYS_PY396" ]] || ! is_py396 "$SYS_PY396"; then
+    fail "Python $TARGET_PY_VER could not be found or installed automatically."
+    echo "  Please install Python $TARGET_PY_VER (e.g. brew install python@3.9 or conda) and re-run."
+    exit 1
+  fi
+
+  ok "Found Python $TARGET_PY_VER at $SYS_PY396"
+
+  RECREATE=true
+  if [[ -x "$VENV/bin/python" ]] && is_py396 "$VENV/bin/python"; then
+    RECREATE=false
+    ok "Virtualenv at $VENV already has Python $TARGET_PY_VER"
+  fi
+
+  if [[ "$RECREATE" == "true" ]]; then
+    if [[ -d "$VENV" ]]; then
+      info "Existing .venv does not match Python $TARGET_PY_VER — recreating venv…"
+      rm -rf "$VENV"
+    else
+      info "Creating venv at $VENV with $SYS_PY396…"
+    fi
+    "$SYS_PY396" -m venv "$VENV"
+  fi
+
+  # Activate virtual environment
+  source "$VENV/bin/activate"
+  ACT_VER=$(python --version 2>&1 | awk '{print $2}')
+  ok "Python venv activated (Python $ACT_VER)"
+  ENV_TYPE="venv"
 fi
+
+# Ensure sidecars/mlx-llm/.venv points to $REPO/.venv
+if [[ "$SIDECAR/.venv" != "$VENV" ]]; then
+  rm -rf "$SIDECAR/.venv"
+  ln -sfn "../../.venv" "$SIDECAR/.venv"
+  ok "Linked $SIDECAR/.venv -> $VENV"
+fi
+
+# Install dependencies in the activated environment
+info "Upgrading pip in activated environment…"
+"$VENV/bin/pip" install -q --upgrade pip
+
+info "Installing mlx_llm + dependencies (pydantic, mlx-lm)…"
+"$VENV/bin/pip" install -q -e "$SIDECAR"
+"$VENV/bin/pip" install -q pytest
+ok "Python environment ready and packages installed"
 
 # ── 4. FFmpeg / FFprobe ───────────────────────────────────────────────────────
 header "4 / 6  FFmpeg / FFprobe"
@@ -238,5 +371,11 @@ else
   echo -e "                             ⚠  Build whisper-cli first for transcription"
   echo -e "  ${YELLOW}npm run tauri:build:dmg${RESET}    Build production .dmg"
   echo -e "                             ⚠  Build whisper-cli first"
+fi
+
+if [[ "$ENV_TYPE" == "conda" ]]; then
+  echo -e "  ${CYAN}conda activate $VENV${RESET}      Activate Python 3.9.6 conda environment"
+elif [[ "$ENV_TYPE" == "venv" ]]; then
+  echo -e "  ${CYAN}source .venv/bin/activate${RESET}          Activate Python 3.9.6 virtual environment"
 fi
 echo ""
