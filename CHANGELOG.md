@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.8.0] — 2026-10-15
+
+### Added
+- **Extract selection** — keep only the range between the I and O marks and drop everything else (`Markers ▾ → Extract selection`, `⇧⌘X`). Works in source time per segment, so untranscribed clips can be trimmed too, and it is one undo step. New pure `keepOutputRange` in `src/lib/edl.ts`.
+- **Delete selection** is now also in the Markers menu (was `⌘⌫` only). Both range operations share `src/lib/rangeActions.ts` with the I / O / X shortcuts, show a toast when the range covers nothing, and respect review-only (Transcribe) mode.
+- Chapters and music-bed offsets are re-timed after a ripple delete, extract or silence trim so they keep pointing at the same content (a chapter whose content was removed is dropped).
+- `tests/rangeEdit.test.ts`: extract/delete behaviour plus 1e-9 s timeline and word-sync invariants (contiguity, 10 000-segment drift, output↔source round trip, 200 seeded random edit sequences).
+
+### Fixed
+- Deleting a word or gap shorter than twice `paddingMs` made the neighbouring kept segments overlap in source time, so the same audio played twice. Padding next to a cut is now capped at a quarter of the cut, and degenerate overlapping words are separated.
+- Export extended every segment by `paddingMs` a second time, so the exported video grew ~`paddingMs` per segment relative to the timeline and captions/chapters/music drifted later and later. Export now cuts exactly the EDL bounds (padding is already baked into them by the edit); covered by a Rust test.
+
 ## [4.7.0] — 2026-07-07
 
 ### Added

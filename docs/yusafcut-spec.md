@@ -311,7 +311,8 @@ Tasks:
    - Find the segment(s) containing the selected words.
    - Split each affected segment at the selection boundaries (creating up to 3 segments per original).
    - Remove the middle segment(s) — the ones fully inside the selection.
-   - Apply `paddingMs` (default 80ms) — keep that much audio before/after each surviving segment edge to avoid clipped consonants.
+   - Apply `paddingMs` (default 80ms) — keep that much audio before/after each surviving segment edge to avoid clipped consonants. Padding is capped at a quarter of the cut so kept segments never overlap, and export does not pad again.
+   - **Mark In / Out:** `I` / `O` set the range; `⌘⌫` deletes it, `⇧⌘X` extracts it (keeps only the range).
    - Recompute output timeline.
 2. **Player playback over the EDL.** This is subtle. Options:
    - **Option A (chosen for MVP):** Use a single `<video>` element. On `timeupdate`, check if `currentTime` is inside a "deleted" range; if so, jump to the next surviving segment's `sourceIn`. Coarse but works.

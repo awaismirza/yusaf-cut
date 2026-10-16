@@ -97,6 +97,17 @@ fn export_job_title(opts: &ExportOpts) -> String {
     format!("Exporting → {name}")
 }
 
+/// Source-time bounds ffmpeg should cut for a segment.
+///
+/// Exactly the EDL bounds: cut-point padding (`paddingMs`) is already baked
+/// into `source_in`/`source_out` when the edit is made (`deleteWords` in
+/// `src/lib/edl.ts`). Padding again here would make every exported clip longer
+/// than the timeline, so captions, chapters and music would drift later with
+/// each segment.
+fn segment_clip_bounds(seg: &crate::edl::Segment) -> (f64, f64) {
+    (seg.source_in.max(0.0), seg.source_out)
+}
+
 async fn run_export(
     app: &AppHandle,
     state: &State<'_, AppState>,
@@ -211,18 +222,14 @@ async fn try_smart_cut(
         return Err(SmartCutError::Skip("source has too few keyframes".into()));
     }
 
-    // Apply the same cut-point pre-roll padding as the full-reencode path so
-    // smart-cut exports are equally protected against consonant clipping.
-    let pad_secs = opts.project.settings.padding_ms as f64 / 1000.0;
-
     // Plan chunks for every segment.
     let mut plans: Vec<Vec<Chunk>> = Vec::with_capacity(opts.project.segments.len());
     let mut total_chunks = 0usize;
     let mut copyable = 0.0f64;
     let mut reencode_secs = 0.0f64;
     for seg in &opts.project.segments {
-        let padded_in = (seg.source_in - pad_secs).max(0.0);
-        let chunks = smart_cut::plan_segment(padded_in, seg.source_out, &kfs);
+        let (clip_in, clip_out) = segment_clip_bounds(seg);
+        let chunks = smart_cut::plan_segment(clip_in, clip_out, &kfs);
         for c in &chunks {
             match c.kind {
                 ChunkKind::Copy => copyable += c.duration(),
@@ -474,12 +481,6 @@ async fn full_reencode(
     total_duration: f64,
     chapter_meta: Option<PathBuf>,
 ) -> Result<(), String> {
-    // Cut-point pre-roll padding: pull each segment's source_in back by
-    // padding_ms so word-initial consonants aren't clipped when Whisper's
-    // timestamps land a few milliseconds late. We only extend the start (not
-    // the end) to avoid overlapping with adjacent segments' content.
-    let pad_secs = opts.project.settings.padding_ms as f64 / 1000.0;
-
     // Build a list of (input_path, in, out) by walking the EDL in output order.
     let mut inputs: Vec<&String> = Vec::new();
     let mut clip_specs: Vec<(usize, f64, f64)> = Vec::new();
@@ -496,7 +497,8 @@ async fn full_reencode(
                 inputs.len() - 1
             }
         };
-        clip_specs.push((idx, (seg.source_in - pad_secs).max(0.0), seg.source_out));
+        let (clip_in, clip_out) = segment_clip_bounds(seg);
+        clip_specs.push((idx, clip_in, clip_out));
     }
 
     // Build the segment filter graph (trim each segment, concat into [outv][outa]).
@@ -927,6 +929,23 @@ mod tests {
             chapters: vec![],
             audio_tracks: vec![],
         }
+    }
+
+    #[test]
+    fn exported_clip_lengths_sum_to_the_edl_duration_even_with_padding() {
+        // padding_ms is 80 in the fixture; the exported clips must still total
+        // exactly the timeline length, or captions/chapters drift per segment.
+        let p = fixture();
+        let edl_total: f64 = p.segments.iter().map(|s| s.source_out - s.source_in).sum();
+        let clips_total: f64 = p
+            .segments
+            .iter()
+            .map(|s| {
+                let (a, b) = super::segment_clip_bounds(s);
+                b - a
+            })
+            .sum();
+        assert!((clips_total - edl_total).abs() < 1e-9, "{clips_total} vs {edl_total}");
     }
 
     #[test]

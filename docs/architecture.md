@@ -70,7 +70,14 @@ type Project = {
 2. Source timecodes (`sourceIn`, `sourceOut`) refer to the original media file.
 3. Deleting a word range splits the affected segment(s) and drops the middle.
 4. `paddingMs` is applied at the *boundary* of cuts only — never to the start of
-   the first surviving run or the end of the last surviving run.
+   the first surviving run or the end of the last surviving run. Padding next to
+   a cut is capped at a quarter of the cut, so neighbouring kept segments never
+   overlap in source time. Export cuts exactly `sourceIn`/`sourceOut` (it adds no
+   padding of its own), so exported length always equals `totalDuration`.
+5. Mark In / Mark Out (`playerStore`, output-timeline seconds) drive two range
+   edits in `src/lib/rangeActions.ts`: `deleteOutputRange` (ripple delete) and
+   `keepOutputRange` (extract — keep only the range). Both re-time chapters and
+   audio-track offsets via `retimeAfterEdit`.
 
 `tests/edl.test.ts` is the canonical reference. Read it before changing any
 EDL operation.

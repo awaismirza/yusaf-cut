@@ -5423,7 +5423,7 @@ dependencies = [
 
 [[package]]
 name = "yusafcut"
-version = "4.7.1"
+version = "4.8.0"
 dependencies = [
  "anyhow",
  "chrono",

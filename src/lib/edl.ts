@@ -343,9 +343,16 @@ export function deleteWords(project: Project, wordIds: ReadonlySet<string>): Pro
     }
 
     // Convert kept runs into segments with appropriate source-time bounds.
-    for (let i = 0; i < runs.length; i++) {
+    const keptIdx: number[] = [];
+    runs.forEach((r, i) => {
+      if (r.kept) keptIdx.push(i);
+    });
+    const fromSeg: Segment[] = [];
+    for (let k = 0; k < keptIdx.length; k++) {
+      const i = keptIdx[k]!;
       const run = runs[i]!;
-      if (!run.kept) continue;
+      const prevRun = k > 0 ? runs[keptIdx[k - 1]!]! : null;
+      const nextRun = k < keptIdx.length - 1 ? runs[keptIdx[k + 1]!]! : null;
 
       const firstWord = run.words[0]!;
       const lastWord = run.words[run.words.length - 1]!;
@@ -354,12 +361,24 @@ export function deleteWords(project: Project, wordIds: ReadonlySet<string>): Pro
       // end at lastWord.end + padding (clamped to seg.sourceOut).
       // If this run is the very first/last in the segment, use the segment bounds
       // so we don't accidentally shave off pre/post-roll the user explicitly kept.
+      // Padding next to a cut is capped by the size of the cut (see cutPadding)
+      // so neighbouring kept segments never overlap in source time.
       const isFirstRun = i === 0;
       const isLastRun = i === runs.length - 1;
-      const sourceIn = isFirstRun ? seg.sourceIn : Math.max(seg.sourceIn, firstWord.start - paddingSec);
-      const sourceOut = isLastRun ? seg.sourceOut : Math.min(seg.sourceOut, lastWord.end + paddingSec);
+      const padBefore = prevRun
+        ? cutPadding(paddingSec, firstWord.start - prevRun.words[prevRun.words.length - 1]!.end)
+        : paddingSec;
+      const padAfter = nextRun
+        ? cutPadding(paddingSec, nextRun.words[0]!.start - lastWord.end)
+        : paddingSec;
+      const sourceIn = isFirstRun
+        ? seg.sourceIn
+        : Math.max(seg.sourceIn, firstWord.start - padBefore);
+      const sourceOut = isLastRun
+        ? seg.sourceOut
+        : Math.min(seg.sourceOut, lastWord.end + padAfter);
 
-      nextSegments.push({
+      fromSeg.push({
         id: uuidv4(),
         mediaId: seg.mediaId,
         words: run.words,
@@ -367,9 +386,154 @@ export function deleteWords(project: Project, wordIds: ReadonlySet<string>): Pro
         sourceOut,
       });
     }
+    nextSegments.push(...separateOverlaps(fromSeg));
   }
 
-  return { ...project, segments: nextSegments, updatedAt: new Date().toISOString() };
+  return retimeAfterEdit(project, {
+    ...project,
+    segments: nextSegments,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Padding kept either side of a cut, capped at a quarter of the cut so at
+ * least half of every cut is really removed and the two kept sides can never
+ * reach each other. `gap` is the source-time distance between the surviving
+ * words on either side of the cut.
+ */
+function cutPadding(paddingSec: number, gap: number): number {
+  return Math.min(paddingSec, Math.max(0, gap) / 4);
+}
+
+/** Safety net for degenerate input (overlapping words): consecutive segments
+ * cut from one parent must not overlap in source time. */
+function separateOverlaps(segs: Segment[]): Segment[] {
+  const out = segs.map((s) => ({ ...s }));
+  for (let i = 1; i < out.length; i++) {
+    const prev = out[i - 1]!;
+    const cur = out[i]!;
+    if (prev.sourceOut > cur.sourceIn) {
+      const mid = (prev.sourceOut + cur.sourceIn) / 2;
+      prev.sourceOut = mid;
+      cur.sourceIn = mid;
+    }
+  }
+  return out;
+}
+
+/**
+ * Keep ONLY the given output-time range; everything outside it is dropped
+ * (the inverse of deleting the range). Works in source time per segment, so
+ * segments without words can be trimmed too. Words are never mutated: a word
+ * is kept whole when its span overlaps the kept source range, mirroring
+ * `wordIdsInOutputRange`. Returns the same project when nothing would change.
+ */
+export function keepOutputRange(project: Project, markIn: number, markOut: number): Project {
+  const start = Math.min(markIn, markOut);
+  const end = Math.max(markIn, markOut);
+  if (!(end > start)) return project;
+
+  const timeline = computeTimeline(project);
+  const nextSegments: Segment[] = [];
+  let changed = false;
+
+  for (const entry of timeline) {
+    const seg = project.segments.find((s) => s.id === entry.segmentId);
+    if (!seg) continue;
+    const lo = Math.max(start, entry.outputStart);
+    const hi = Math.min(end, entry.outputEnd);
+    if (!(hi > lo)) {
+      changed = true;
+      continue;
+    }
+    // Use the segment's own bounds verbatim when the range covers that edge, so
+    // no float error creeps in from `sourceIn + (t - outputStart)`.
+    const sourceIn = lo <= entry.outputStart ? seg.sourceIn : seg.sourceIn + (lo - entry.outputStart);
+    const sourceOut = hi >= entry.outputEnd ? seg.sourceOut : seg.sourceIn + (hi - entry.outputStart);
+    if (sourceIn === seg.sourceIn && sourceOut === seg.sourceOut) {
+      nextSegments.push(seg);
+      continue;
+    }
+    changed = true;
+    nextSegments.push({
+      id: uuidv4(),
+      mediaId: seg.mediaId,
+      words: seg.words.filter((w) => w.end > sourceIn && w.start < sourceOut),
+      sourceIn,
+      sourceOut,
+    });
+  }
+
+  // A range that misses the timeline entirely would leave an empty project; treat as no-op.
+  if (!changed || nextSegments.length === 0) return project;
+  return retimeAfterEdit(project, {
+    ...project,
+    segments: nextSegments,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * After an edit that removes output time, move chapters and audio tracks so
+ * they keep pointing at the same *content*. A chapter whose content was removed
+ * is dropped; an audio track whose start was removed starts at the next
+ * surviving content (or at the end of the new timeline).
+ */
+export function retimeAfterEdit(before: Project, after: Project): Project {
+  const hasChapters = (after.chapters?.length ?? 0) > 0;
+  const hasTracks = (after.audioTracks?.length ?? 0) > 0;
+  if (!hasChapters && !hasTracks) return after;
+
+  const oldTl = computeTimeline(before);
+  const newTl = computeTimeline(after);
+  const newTotal = totalDuration(after);
+  const next: Project = { ...after };
+
+  if (hasChapters) {
+    next.chapters = after.chapters!.flatMap((c) => {
+      const t = mapOutputTimeStrict(oldTl, newTl, c.outputTime);
+      return t === null ? [] : [{ ...c, outputTime: t }];
+    });
+  }
+  if (hasTracks) {
+    next.audioTracks = after.audioTracks!.map((t) =>
+      t.offsetSec < 0
+        ? t
+        : { ...t, offsetSec: mapOutputTimeLenient(oldTl, newTl, t.offsetSec, newTotal) },
+    );
+  }
+  return next;
+}
+
+function mapOutputTimeStrict(
+  oldTl: TimelineEntry[],
+  newTl: TimelineEntry[],
+  t: number,
+): number | null {
+  const e = oldTl.find((x) => t >= x.outputStart && t < x.outputEnd);
+  if (!e) return null;
+  const src = e.sourceIn + (t - e.outputStart);
+  const n = newTl.find((x) => x.mediaId === e.mediaId && src >= x.sourceIn && src < x.sourceOut);
+  return n ? n.outputStart + (src - n.sourceIn) : null;
+}
+
+function mapOutputTimeLenient(
+  oldTl: TimelineEntry[],
+  newTl: TimelineEntry[],
+  t: number,
+  newTotal: number,
+): number {
+  for (const e of oldTl) {
+    if (e.outputEnd <= t) continue;
+    const a = Math.max(e.sourceIn, e.sourceIn + (t - e.outputStart));
+    for (const n of newTl) {
+      if (n.mediaId !== e.mediaId) continue;
+      const lo = Math.max(a, n.sourceIn);
+      if (lo < Math.min(e.sourceOut, n.sourceOut)) return n.outputStart + (lo - n.sourceIn);
+    }
+  }
+  return newTotal;
 }
 
 /**
@@ -463,7 +627,11 @@ export function removeSilences(
 
   if (removed === 0) return [project, 0];
   return [
-    { ...project, segments: nextSegments, updatedAt: new Date().toISOString() },
+    retimeAfterEdit(project, {
+      ...project,
+      segments: nextSegments,
+      updatedAt: new Date().toISOString(),
+    }),
     removed,
   ];
 }

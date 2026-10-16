@@ -15,6 +15,7 @@ import {
   addChapter,
   addMediaWithTranscript,
   deleteWords,
+  keepOutputRange,
   newProject,
   removeAudioTrack,
   removeChapter,
@@ -42,6 +43,8 @@ interface ProjectState {
   addMediaWithTranscript: (media: SourceMedia, words: Word[]) => void;
   deleteWords: (ids: Iterable<string>) => void;
   deleteOutputRange: (markIn: number, markOut: number) => number;
+  /** Keep only the output-time range [markIn, markOut]; drop everything else. */
+  keepOutputRange: (markIn: number, markOut: number) => void;
   /** Delete every word whose source-media span overlaps [srcStart, srcEnd].
    *  Use this with timestamps returned by ffmpeg silencedetect, which operates
    *  on the original source file. Returns the count of words removed. */
@@ -197,6 +200,13 @@ export const useProjectStore = create<ProjectState>()(
           dirty: true,
         });
         return ids.length;
+      },
+
+      keepOutputRange: (markIn, markOut) => {
+        const project = _get().project;
+        const next = keepOutputRange(project, markIn, markOut);
+        if (next === project) return;
+        set({ project: next, dirty: true });
       },
 
       deleteBySourceRange: (srcStart, srcEnd) => {

@@ -7,6 +7,7 @@
  *   Cmd+S         save  (caller wires the toolbar button)
  *   Cmd+E         export
  *   Delete        cut selected transcript words
+ *   I / O         mark in / out;  Cmd+Delete deletes the range, Cmd+Shift+X keeps only it
  */
 
 import { useEffect } from "react";
@@ -14,7 +15,8 @@ import { useEditorUiStore } from "@/stores/editorUiStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useProjectStore, useTemporalProjectStore } from "@/stores/projectStore";
 import { useUIStore } from "@/stores/uiStore";
-import { wordIdToOutputTime, wordIdsInOutputRange } from "@/lib/edl";
+import { wordIdToOutputTime } from "@/lib/edl";
+import { applyMarkedRange, setMarkIn, setMarkOut } from "@/lib/rangeActions";
 
 function isMac() {
   return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -108,33 +110,20 @@ export function useKeyboardShortcuts() {
 
       if (e.key.toLowerCase() === "i" && !inTextField) {
         e.preventDefault();
-        const s = usePlayerStore.getState();
-        s.setTimelineRange(s.currentTime, s.timelineMarkOut);
-        if (s.timelineMarkOut !== null) {
-          s.setSelectedWordIds(
-            wordIdsInOutputRange(
-              useProjectStore.getState().project,
-              s.currentTime,
-              s.timelineMarkOut,
-            ),
-          );
-        }
+        setMarkIn();
         return;
       }
 
       if (e.key.toLowerCase() === "o" && !inTextField) {
         e.preventDefault();
-        const s = usePlayerStore.getState();
-        s.setTimelineRange(s.timelineMarkIn, s.currentTime);
-        if (s.timelineMarkIn !== null) {
-          s.setSelectedWordIds(
-            wordIdsInOutputRange(
-              useProjectStore.getState().project,
-              s.timelineMarkIn,
-              s.currentTime,
-            ),
-          );
-        }
+        setMarkOut();
+        return;
+      }
+
+      // Cmd+Shift+X extracts the marked range: keep only it, drop the rest.
+      if (mod && e.shiftKey && e.key.toLowerCase() === "x" && !inTextField) {
+        e.preventDefault();
+        void applyMarkedRange("extract");
         return;
       }
 
@@ -169,21 +158,7 @@ export function useKeyboardShortcuts() {
         if (!hasRange && selectedIds.length === 0) return;
         e.preventDefault();
         if (hasRange) {
-          const markIn = player.timelineMarkIn!;
-          const markOut = player.timelineMarkOut!;
-          const seekTo = Math.min(markIn, markOut);
-          void ui
-            .withProcessingEdit("Updating timeline…", () => {
-              projectStore.deleteOutputRange(markIn, markOut);
-            })
-            .then(() => {
-              player.clearTimelineRange();
-              player.setSelectedWordIds([]);
-              player.setCurrentTime(seekTo);
-              window.dispatchEvent(
-                new CustomEvent("yusafcut:seek-output", { detail: { time: seekTo, play: false } }),
-              );
-            });
+          void applyMarkedRange("delete");
           return;
         }
         void ui

@@ -6,7 +6,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { projectChapters, wordIdsInOutputRange } from "@/lib/edl";
+import { projectChapters } from "@/lib/edl";
+import { applyMarkedRange, clearMarkers, setMarkIn, setMarkOut } from "@/lib/rangeActions";
+import { useEditorUiStore } from "@/stores/editorUiStore";
 import { usePlayerStore } from "@/stores/playerStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUIStore } from "@/stores/uiStore";
@@ -55,33 +57,13 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
   const timelineMarkIn = usePlayerStore((s) => s.timelineMarkIn);
   const timelineMarkOut = usePlayerStore((s) => s.timelineMarkOut);
   const timelineZoom = usePlayerStore((s) => s.timelineZoom);
-  const setTimelineRange = usePlayerStore((s) => s.setTimelineRange);
-  const clearTimelineRange = usePlayerStore((s) => s.clearTimelineRange);
-  const setSelectedWordIds = usePlayerStore((s) => s.setSelectedWordIds);
   const setTimelineZoom = usePlayerStore((s) => s.setTimelineZoom);
 
   const hasWords = project.segments.some((s) => s.words.length > 0);
   const hasMultipleWords = project.segments.some((s) => s.words.length > 1);
   const hasMarkers = timelineMarkIn !== null || timelineMarkOut !== null;
-
-  function setMarkIn() {
-    setTimelineRange(currentTime, timelineMarkOut);
-    if (timelineMarkOut !== null) {
-      setSelectedWordIds(wordIdsInOutputRange(project, currentTime, timelineMarkOut));
-    }
-  }
-
-  function setMarkOut() {
-    setTimelineRange(timelineMarkIn, currentTime);
-    if (timelineMarkIn !== null) {
-      setSelectedWordIds(wordIdsInOutputRange(project, timelineMarkIn, currentTime));
-    }
-  }
-
-  function clearMarkers() {
-    clearTimelineRange();
-    setSelectedWordIds([]);
-  }
+  const hasRange = timelineMarkIn !== null && timelineMarkOut !== null;
+  const reviewOnly = useEditorUiStore((s) => s.workspaceMode) === "transcribe";
 
   async function handleRemoveSilences() {
     await withProcessingEdit("Trimming silences…", () => {
@@ -267,6 +249,23 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
             <Flag className="h-4 w-4 mr-2" />
             Set Out point
             <span className="ml-auto text-xs text-muted-foreground pl-4">O</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={() => void applyMarkedRange("extract")}
+            disabled={!hasRange || reviewOnly}
+          >
+            <Scissors className="h-4 w-4 mr-2" />
+            Extract selection
+            <span className="ml-auto text-xs text-muted-foreground pl-4">⇧⌘X</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => void applyMarkedRange("delete")}
+            disabled={!hasRange || reviewOnly}
+          >
+            <Scissors className="h-4 w-4 mr-2" />
+            Delete selection
+            <span className="ml-auto text-xs text-muted-foreground pl-4">⌘⌫</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={clearMarkers} disabled={!hasMarkers}>
