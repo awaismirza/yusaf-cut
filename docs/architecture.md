@@ -78,6 +78,10 @@ type Project = {
    edits in `src/lib/rangeActions.ts`: `deleteOutputRange` (ripple delete) and
    `keepOutputRange` (extract — keep only the range). Both re-time chapters and
    audio-track offsets via `retimeAfterEdit`.
+6. Shorten pauses cuts source-time ranges with `trimSourceRanges`: each range
+   is reduced by every word span it touches, so it removes only audio between
+   words, then splits the segment around what is left. Pauses are detected on
+   the first media, so cuts apply to that media's segments only.
 
 `tests/edl.test.ts` is the canonical reference. Read it before changing any
 EDL operation.

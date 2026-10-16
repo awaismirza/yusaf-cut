@@ -183,8 +183,7 @@ export function Toolbox({ onFindClick }: ToolboxProps) {
       } else {
         pushToast({
           title: `Shortened ${shortened} pause${shortened === 1 ? "" : "s"} to ${shortenTo}s`,
-          description:
-            "Badges updated. Note: export trimming for shortened pauses is TODO Phase 2.",
+          description: "Cut from the timeline and export. Use ⌘Z to restore.",
         });
       }
     });

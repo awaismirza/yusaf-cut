@@ -375,8 +375,8 @@ export interface PauseSegment {
    */
   deleted?: boolean;
   /**
-   * When non-null, the pause has been visually shortened to this many seconds.
-   * NOTE (Phase 1): display-only — actual EDL segment trimming is TODO Phase 2.
+   * When non-null, the pause has been shortened to this many seconds.
+   * The middle of the pause has been cut from the EDL (`trimSourceRanges`).
    */
   shortenedTo?: number | null;
 }

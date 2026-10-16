@@ -636,6 +636,98 @@ export function removeSilences(
   ];
 }
 
+/** Cuts shorter than this (seconds) are ignored — below one audio frame. */
+const MIN_CUT_SEC = 0.001;
+
+/**
+ * Remove source-time ranges of one media from the timeline, splitting the
+ * segments that contain them. Used to shorten detected pauses. A cut never
+ * removes or clips a word: each range is reduced by every word span it touches,
+ * so only audio between words goes. Returns `[nextProject, cutCount]`, where
+ * `cutCount` is the number of input ranges that removed any time; the same
+ * project is returned when nothing changed.
+ */
+export function trimSourceRanges(
+  project: Project,
+  mediaId: string,
+  ranges: ReadonlyArray<{ start: number; end: number }>,
+): [Project, number] {
+  const cutRanges = new Set<number>();
+  const nextSegments: Segment[] = [];
+
+  for (const seg of project.segments) {
+    if (seg.mediaId !== mediaId) {
+      nextSegments.push(seg);
+      continue;
+    }
+
+    // Clip every range to the segment, then subtract the word spans from it.
+    const cuts: { start: number; end: number; range: number }[] = [];
+    ranges.forEach((r, range) => {
+      let pieces = [
+        { start: Math.max(r.start, seg.sourceIn), end: Math.min(r.end, seg.sourceOut) },
+      ];
+      for (const w of seg.words) {
+        pieces = pieces.flatMap((p) =>
+          w.end <= p.start || w.start >= p.end
+            ? [p]
+            : [
+                { start: p.start, end: w.start },
+                { start: w.end, end: p.end },
+              ],
+        );
+      }
+      for (const p of pieces) if (p.end - p.start >= MIN_CUT_SEC) cuts.push({ ...p, range });
+    });
+    if (cuts.length === 0) {
+      nextSegments.push(seg);
+      continue;
+    }
+
+    // Merge overlapping cuts, then emit the kept pieces between them.
+    cuts.sort((a, b) => a.start - b.start);
+    const merged: { start: number; end: number }[] = [];
+    for (const c of cuts) {
+      cutRanges.add(c.range);
+      const last = merged[merged.length - 1];
+      if (last && c.start <= last.end) last.end = Math.max(last.end, c.end);
+      else merged.push({ start: c.start, end: c.end });
+    }
+    let keptFrom = seg.sourceIn;
+    const bounds = [...merged, { start: seg.sourceOut, end: seg.sourceOut }];
+    bounds.forEach((cut, k) => {
+      const keptTo = cut.start;
+      const isFirst = k === 0;
+      const isLast = k === bounds.length - 1;
+      if (keptTo - keptFrom >= MIN_CUT_SEC) {
+        nextSegments.push({
+          id: uuidv4(),
+          mediaId: seg.mediaId,
+          // Cuts avoid word spans, so each word sits wholly inside one kept
+          // piece; the outer pieces also take words that overhang the segment.
+          words: seg.words.filter((w) => {
+            const mid = (w.start + w.end) / 2;
+            return (isFirst || mid >= keptFrom) && (isLast || mid < keptTo);
+          }),
+          sourceIn: keptFrom,
+          sourceOut: keptTo,
+        });
+      }
+      keptFrom = cut.end;
+    });
+  }
+
+  if (cutRanges.size === 0) return [project, 0];
+  return [
+    retimeAfterEdit(project, {
+      ...project,
+      segments: nextSegments,
+      updatedAt: new Date().toISOString(),
+    }),
+    cutRanges.size,
+  ];
+}
+
 /** Add a new source media + initial single-segment-covers-everything EDL. */
 export function addMediaWithTranscript(
   project: Project,

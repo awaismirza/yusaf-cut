@@ -21,6 +21,7 @@ import {
   removeChapter,
   removeSilences,
   renameChapter,
+  trimSourceRanges,
   updateAudioTrack,
   wordIdsInOutputRange,
   type AudioTrack,
@@ -124,14 +125,10 @@ interface ProjectState {
    */
   deletePausesLongerThan: (seconds: number) => number;
   /**
-   * Visually shorten all pauses longer than `longerThan` to `shortenTo`
-   * seconds by updating `shortenedTo` on matching tokens.
-   *
-   * NOTE Phase 1: This updates the displayed badge only.  Actual EDL segment
-   * trimming (cutting silence from the export timeline) requires segment
-   * splitting and is planned for Phase 2.
-   *
-   * Returns the count of pauses shortened.
+   * Shorten every pause longer than `longerThan` to `shortenTo` seconds: the
+   * middle of the pause is cut from the EDL (so preview and export both lose
+   * it), keeping `shortenTo / 2` of silence on each side, and the badge is
+   * updated. Returns the count of pauses shortened.
    */
   shortenPausesLongerThan: (opts: { longerThan: number; shortenTo: number }) => number;
 }
@@ -404,17 +401,29 @@ export const useProjectStore = create<ProjectState>()(
       },
 
       shortenPausesLongerThan: ({ longerThan, shortenTo }) => {
-        const { pauseTokens } = _get();
-        const targets = pauseTokens.filter((p) => !p.deleted && p.duration > longerThan);
+        const { pauseTokens, project } = _get();
+        // Pauses are detected on the first media (see Toolbox handleShowPauses).
+        const mediaId = Object.keys(project.media)[0];
+        if (!mediaId) return 0;
+        const keep = Math.max(0, shortenTo);
+        const targets = pauseTokens.filter(
+          (p) => !p.deleted && p.duration > longerThan && (p.shortenedTo ?? p.duration) > keep,
+        );
         if (targets.length === 0) return 0;
+        // Cut the middle of each pause; half of `keep` stays on either side.
+        const [next] = trimSourceRanges(
+          project,
+          mediaId,
+          targets.map((p) => ({ start: p.start + keep / 2, end: p.end - keep / 2 })),
+        );
         const targetIds = new Set(targets.map((p) => p.id));
         set({
+          // Only touch `project` when it changed, so a no-op adds no undo step.
+          ...(next !== project ? { project: next, dirty: true } : {}),
           pauseTokens: pauseTokens.map((p) =>
-            targetIds.has(p.id) ? { ...p, shortenedTo: shortenTo } : p,
+            targetIds.has(p.id) ? { ...p, shortenedTo: keep } : p,
           ),
         });
-        // TODO Phase 2: trim the source segment to remove (pause.start + shortenTo, pause.end)
-        // from the export timeline.  This requires an EDL segment-splitting operation.
         return targets.length;
       },
     }),

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.9.0] — 2026-10-16
+
+### Fixed
+- **Shorten pauses** now really shortens them. It used to update the `[0.6s]` badges only, so preview and export still played the full silence. The middle of each pause longer than the threshold is now cut from the EDL, leaving `shortenTo / 2` of silence on each side; it is one undo step, and chapters and music-bed offsets are re-timed. A cut never removes or clips a word: word spans inside a detected pause are left in place. New pure `trimSourceRanges` in `src/lib/edl.ts`, covered by `tests/shortenPauses.test.ts`.
+
 ## [4.8.0] — 2026-10-15
 
 ### Added
